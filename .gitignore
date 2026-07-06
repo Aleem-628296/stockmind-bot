@@ -1,0 +1,5 @@
+   .env
+   stock.db
+   __pycache__/
+   nohup.out
+
