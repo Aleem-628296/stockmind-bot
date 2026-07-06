@@ -1,5 +1,7 @@
-   .env
-   stock.db
-   __pycache__/
-   nohup.out
-
+venv/
+__pycache__/
+.env
+stock.db
+*.log
+*.pyc
+.pytest_cache/
