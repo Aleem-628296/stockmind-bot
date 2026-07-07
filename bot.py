@@ -83,8 +83,11 @@ def init_db():
         print(f"❌ Error initializing database: {e}")
 
 def save_state(chat_id, state, data_dict=None):
+    conn = get_db()
+    if not conn:
+        print(f"❌ Cannot save state - no database connection")
+        return False
     try:
-        conn = get_db()
         data_json = json.dumps(data_dict) if data_dict else "{}"
         c = conn.cursor()
         c.execute("""INSERT INTO user_state (chat_id, state, data) VALUES (%s, %s, %s) 
@@ -92,26 +95,40 @@ def save_state(chat_id, state, data_dict=None):
                   (chat_id, state, data_json))
         conn.commit()
         c.close()
-        conn.close()
+        print(f"✅ State saved: chat_id={chat_id}, state={state}")
+        return True
     except Exception as e:
-        print(f"❌ Error saving state: {e}")
+        print(f"❌ Save state error: {e}")
+        return False
+    finally:
+        conn.close()
 
 def get_state(chat_id):
+    conn = get_db()
+    if not conn:
+        print(f"❌ Cannot get state - no database connection")
+        return None, {}
     try:
-        conn = get_db()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("SELECT state, data FROM user_state WHERE chat_id=%s", (chat_id,))
         row = cursor.fetchone()
-        conn.close()
+        cursor.close()
         if row:
             try:
-                return row['state'], json.loads(row['data'])
-            except json.JSONDecodeError:
+                state = row['state']
+                data = json.loads(row['data']) if row['data'] else {}
+                print(f"✅ State retrieved: chat_id={chat_id}, state={state}")
+                return state, data
+            except Exception as e:
+                print(f"❌ Error parsing state data: {e}")
                 return row['state'], {}
-        return None, {}
+        else:
+            print(f"⚠️ No state found for chat_id={chat_id}")
     except Exception as e:
-        print(f"❌ Error getting state: {e}")
-        return None, {}
+        print(f"❌ Get state error: {e}")
+    finally:
+        conn.close()
+    return None, {}
 
 def clear_state(chat_id):
     try:
@@ -227,7 +244,7 @@ def button_handler(query):
             conn.close()
             if not categories:
                 text = "📋 No items in stock yet."
-                markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
+    w            markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
             else:
                 buttons = [[{"text": cat['category'], "callback_data": f"viewcat_{cat['category']}"}] for cat in categories]
                 buttons.append([{"text": "🏠 Main Menu", "callback_data": "main_menu"}])
@@ -743,6 +760,17 @@ def handle_text_message(chat_id, text):
         return
 
     state, data_dict = get_state(chat_id)
+    print(f"📝 Text received: '{text}' | State: {state} | Data: {data_dict}")
+    
+    # If state is None, show menu
+    if state is None:
+        if chat_id in ALLOWED_IDS:
+            text_msg, markup = build_main_menu(chat_id)
+            send_message(chat_id, "🤔 I didn't catch that. Here is the main menu:", reply_markup=markup)
+            clear_state(chat_id)
+        else:
+            send_message(chat_id, "⛔ Access Denied.")
+        return
 
     if state and state.startswith("sell_enter_qty_"):
         try:
@@ -818,83 +846,60 @@ def handle_text_message(chat_id, text):
             send_message(chat_id, "❌ An error occurred. Please try again.")
         return
 
-    elif state and state.startswith("edit_qty_"):
-        try:
-            item_id = int(state.split("_")[2])
-            qty = int(text)
-            if qty < 0: raise ValueError
-        except ValueError:
-            send_message(chat_id, "❌ Please enter a valid positive number.")
-            return
-        try:
-            conn = get_db()
-            c = conn.cursor(cursor_factory=RealDictCursor)
-            c.execute("UPDATE stock SET quantity=%s WHERE id=%s", (qty, item_id))
-            conn.commit()
-            c.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
-            item = c.fetchone()
-            c.close()
-            conn.close()
-            text_msg = f"✅ *Quantity Updated!*\\n\\n*{item['item_name']}* is now {qty}.\\n\\n*What next?*"
-            markup = {"inline_keyboard": [[{"text": "✏️ Edit Another", "callback_data": "main_edit_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
-            clear_state(chat_id)
-            send_message(chat_id, text_msg, reply_markup=markup)
-        except Exception as e:
-            print(f"❌ Error in edit_qty handler: {e}")
-            send_message(chat_id, "❌ An error occurred. Please try again.")
-        return
+elif callback_data.startswith("eq_"):  # edit quantity
+    item_id = int(callback_data[3:])
+    print(f"🔘 Edit qty clicked for item_id={item_id}")
+    success = save_state(chat_id, f"edit_qty_{item_id}")
+    if success:
+        send_force_reply(chat_id, "✏️ *UPDATE QUANTITY*\n\nType the NEW total quantity for this item:", "e.g. 50")
+    else:
+        edit_message(chat_id, message_id, "❌ Error saving state. Please try again.", 
+                    reply_markup={"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]})
+    return
 
-    elif state and state.startswith("edit_cost_"):
-        try:
-            item_id = int(state.split("_")[2])
-            cost = float(text)
-            if cost < 0: raise ValueError
-        except ValueError:
-            send_message(chat_id, "❌ Please enter a valid number.")
-            return
-        try:
-            conn = get_db()
-            c = conn.cursor(cursor_factory=RealDictCursor)
-            c.execute("UPDATE stock SET cost_price=%s WHERE id=%s", (cost, item_id))
-            conn.commit()
-            c.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
-            item = c.fetchone()
-            c.close()
-            conn.close()
-            text_msg = f"✅ *Cost Price Updated!*\\n\\n*{item['item_name']}* cost is now GHS {cost:.2f}.\\n\\n*What next?*"
-            markup = {"inline_keyboard": [[{"text": "✏️ Edit Another", "callback_data": "main_edit_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
-            clear_state(chat_id)
-            send_message(chat_id, text_msg, reply_markup=markup)
-        except Exception as e:
-            print(f"❌ Error in edit_cost handler: {e}")
-            send_message(chat_id, "❌ An error occurred. Please try again.")
-        return
+elif callback_data.startswith("es_"):  # edit sell
+    item_id = int(callback_data[3:])
+    print(f"🔘 Edit sell clicked for item_id={item_id}")
+    success = save_state(chat_id, f"edit_sell_{item_id}")
+    if success:
+        send_force_reply(chat_id, "✏️ *UPDATE SELLING PRICE*\n\nType the NEW selling price per unit:", "e.g. 25.00")
+    else:
+        edit_message(chat_id, message_id, "❌ Error saving state. Please try again.", 
+                    reply_markup={"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]})
+    return
 
-    elif state and state.startswith("edit_sell_"):
-        try:
-            item_id = int(state.split("_")[2])
-            sell = float(text)
-            if sell < 0: raise ValueError
-        except ValueError:
-            send_message(chat_id, "❌ Please enter a valid number.")
-            return
-        try:
-            conn = get_db()
-            c = conn.cursor(cursor_factory=RealDictCursor)
-            c.execute("UPDATE stock SET selling_price=%s WHERE id=%s", (sell, item_id))
-            conn.commit()
-            c.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
-            item = c.fetchone()
-            c.close()
-            conn.close()
-            text_msg = f"✅ *Selling Price Updated!*\\n\\n*{item['item_name']}* sell price is now GHS {sell:.2f}.\\n\\n*What next?*"
-            markup = {"inline_keyboard": [[{"text": "✏️ Edit Another", "callback_data": "main_edit_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
-            clear_state(chat_id)
-            send_message(chat_id, text_msg, reply_markup=markup)
-        except Exception as e:
-            print(f"❌ Error in edit_sell handler: {e}")
-            send_message(chat_id, "❌ An error occurred. Please try again.")
-        return
+elif callback_data.startswith("ec_"):  # edit cost
+    item_id = int(callback_data[3:])
+    print(f"🔘 Edit cost clicked for item_id={item_id}")
+    success = save_state(chat_id, f"edit_cost_{item_id}")
+    if success:
+        send_force_reply(chat_id, "✏️ *UPDATE COST PRICE*\n\nType the NEW cost price per unit:", "e.g. 15.50")
+    else:
+        edit_message(chat_id, message_id, "❌ Error saving state. Please try again.", 
+                    reply_markup={"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]})
+    return
+
+elif callback_data.startswith("eq_"):  # edit quantity
+    item_id = int(callback_data[3:])
+    print(f"🔘 Edit qty clicked for item_id={item_id}")
+    success = save_state(chat_id, f"edit_qty_{item_id}")
+    if success:
+        send_force_reply(chat_id, "✏️ *UPDATE QUANTITY*\n\nType the NEW total quantity for this item:", "e.g. 50")
+    else:
+        edit_message(chat_id, message_id, "❌ Error saving state. Please try again.", 
+                    reply_markup={"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]})
+    return
+
+elif callback_data.startswith("es_"):  # edit sell
+    item_id = int(callback_data[3:])
+    print(f"🔘 Edit sell clicked for item_id={item_id}")
+    success = save_state(chat_id, f"edit_sell_{item_id}")
+    if success:
+        send_force_reply(chat_id, "✏️ *UPDATE SELLING PRICE*\n\nType the NEW selling price per unit:", "e.g. 25.00")
+    else:
+        edit_message(chat_id, message_id, "❌ Error saving state. Please try again.", 
+                    reply_markup={"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]})
+    return
 
     elif state == "add_new_name":
         data_dict['name'] = text
