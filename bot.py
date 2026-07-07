@@ -163,7 +163,7 @@ def send_message(chat_id, text, reply_markup=None):
     except Exception as e:
         print(f"❌ Send Error: {e}")
 
-def send_force_reply(chat_id, text, placeholder="Type here..."):
+def send_force_reply(chat_id, text, placeholder="Type here...", reply_to_message_id=None):
     url = f"{API_URL}/sendMessage"
     data = {
         "chat_id": chat_id, 
@@ -171,6 +171,8 @@ def send_force_reply(chat_id, text, placeholder="Type here..."):
         "parse_mode": "Markdown",
         "reply_markup": {"force_reply": True, "input_field_placeholder": placeholder}
     }
+    if reply_to_message_id:
+        data["reply_to_message_id"] = reply_to_message_id
     try:
         response = requests.post(url, json=data, timeout=10)
         if not response.ok:
@@ -559,20 +561,29 @@ def button_handler(query):
 
         elif callback_data.startswith("eq_"):
             item_id = int(callback_data[3:])
+            print(f"🔘 Edit qty clicked for item_id={item_id}")
             if save_state(chat_id, f"edit_qty_{item_id}"):
-                send_force_reply(chat_id, "✏️ *UPDATE QUANTITY*\n\nType the NEW total quantity for this item:", "e.g. 50")
+                send_force_reply(chat_id, "✏️ *UPDATE QUANTITY*\n\nType the NEW total quantity for this item:", "e.g. 50", reply_to_message_id=message_id)
+            else:
+                edit_message(chat_id, message_id, "❌ Error saving state. Please try again.", {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]})
             return
 
         elif callback_data.startswith("ec_"):
             item_id = int(callback_data[3:])
+            print(f" Edit cost clicked for item_id={item_id}")
             if save_state(chat_id, f"edit_cost_{item_id}"):
-                send_force_reply(chat_id, "✏️ *UPDATE COST PRICE*\n\nType the NEW cost price per unit:", "e.g. 15.50")
+                send_force_reply(chat_id, "✏️ *UPDATE COST PRICE*\n\nType the NEW cost price per unit:", "e.g. 15.50", reply_to_message_id=message_id)
+            else:
+                edit_message(chat_id, message_id, "❌ Error saving state. Please try again.", {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]})
             return
 
         elif callback_data.startswith("es_"):
             item_id = int(callback_data[3:])
+            print(f"🔘 Edit sell clicked for item_id={item_id}")
             if save_state(chat_id, f"edit_sell_{item_id}"):
-                send_force_reply(chat_id, "✏️ *UPDATE SELLING PRICE*\n\nType the NEW selling price per unit:", "e.g. 25.00")
+                send_force_reply(chat_id, "✏️ *UPDATE SELLING PRICE*\n\nType the NEW selling price per unit:", "e.g. 25.00", reply_to_message_id=message_id)
+            else:
+                edit_message(chat_id, message_id, "❌ Error saving state. Please try again.", {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]})
             return
 
         elif callback_data.startswith("del_"):
