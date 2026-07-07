@@ -136,9 +136,9 @@ def build_main_menu(chat_id):
         buttons = [
             [{"text": "📋 View Stock", "callback_data": "main_view_stock"}, {"text": "💰 Record Sale", "callback_data": "main_record_sale"}],
             [{"text": "📜 Recent Sales", "callback_data": "main_recent_sales"}, {"text": "📊 Daily Summary", "callback_data": "main_summary"}],
-            [{"text": "➕ Add Stock", "callback_data": "main_add_stock"}, {"text": "️ Low Stock", "callback_data": "main_low_stock"}]
+            [{"text": "➕ Add Stock", "callback_data": "main_add_stock"}, {"text": "⚠️ Low Stock", "callback_data": "main_low_stock"}]
         ]
-        text = " *VICTORY VENTURE — MAIN MENU*\n\nWelcome, Boss. What would you like to do?"
+        text = "📊 *VICTORY VENTURE — MAIN MENU*\n\nWelcome, Boss. What would you like to do?"
     else:
         buttons = [
             [{"text": "📋 View Stock", "callback_data": "main_view_stock"}, {"text": "💰 Record Sale", "callback_data": "main_record_sale"}],
@@ -149,11 +149,11 @@ def build_main_menu(chat_id):
 
 def get_color_buttons():
     return [
-        [{"text": "⚫ Black", "callback_data": "color_Black"}, {"text": "⚪ White", "callback_data": "color_White"}],
+        [{"text": "⚫ Black", "callback_data": "color_Black"}, {"text": " White", "callback_data": "color_White"}],
         [{"text": "🟡 Yellow", "callback_data": "color_Yellow"}, {"text": "🟢 Green", "callback_data": "color_Green"}],
-        [{"text": "🔴 Red", "callback_data": "color_Red"}, {"text": " Purple", "callback_data": "color_Purple"}],
+        [{"text": " Red", "callback_data": "color_Red"}, {"text": "🟣 Purple", "callback_data": "color_Purple"}],
         [{"text": "🟨 Gold", "callback_data": "color_Gold"}, {"text": "⚪ Silver", "callback_data": "color_Silver"}],
-        [{"text": " Blue", "callback_data": "color_Blue"}, {"text": "📝 Custom", "callback_data": "color_Custom"}]
+        [{"text": "🔵 Blue", "callback_data": "color_Blue"}, {"text": "📝 Custom", "callback_data": "color_Custom"}]
     ]
 
 # --- BUTTON HANDLER ---
@@ -181,7 +181,7 @@ def button_handler(query):
         else:
             buttons = [[{"text": cat['category'], "callback_data": f"viewcat_{cat['category']}"}] for cat in categories]
             buttons.append([{"text": "🏠 Main Menu", "callback_data": "main_menu"}])
-            text = " *VIEW STOCK*\n\nSelect a category:"
+            text = "📋 *VIEW STOCK*\n\nSelect a category:"
             markup = {"inline_keyboard": buttons}
         edit_message(chat_id, message_id, text, reply_markup=markup)
         return
@@ -198,7 +198,7 @@ def button_handler(query):
             for item in items:
                 color_str = f" ({item['color']})" if item['color'] else ""
                 text += f"• *{item['item_name']}*{color_str}\n  Qty: {item['quantity']} | Price: GHS {item['selling_price']:.0f}\n\n"
-        markup = {"inline_keyboard": [[{"text": "📋 View Stock", "callback_data": "main_view_stock"}, {"text": " Main Menu", "callback_data": "main_menu"}]]}
+        markup = {"inline_keyboard": [[{"text": "📋 View Stock", "callback_data": "main_view_stock"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         edit_message(chat_id, message_id, text, reply_markup=markup)
         return
 
@@ -213,7 +213,7 @@ def button_handler(query):
         else:
             buttons = [[{"text": cat['category'], "callback_data": f"sellcat_{cat['category']}"}] for cat in categories]
             buttons.append([{"text": "🏠 Main Menu", "callback_data": "main_menu"}])
-            text = " *RECORD SALE*\n\nSelect the item category:"
+            text = "💰 *RECORD SALE*\n\nSelect the item category:"
             markup = {"inline_keyboard": buttons}
         edit_message(chat_id, message_id, text, reply_markup=markup)
         return
@@ -225,7 +225,7 @@ def button_handler(query):
         conn.close()
         if not items:
             text = f"No items in stock for *{category}*."
-            markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
+            markup = {"inline_keyboard": [[{"text": " Main Menu", "callback_data": "main_menu"}]]}
         else:
             buttons = []
             for item in items:
@@ -248,35 +248,11 @@ def button_handler(query):
             markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         else:
             color_str = f" ({item['color']})" if item['color'] else ""
-            text = f"💰 *RECORD SALE*\n\nItem: *{item['item_name']}*{color_str}\nAvailable: {item['quantity']} pcs\n\nHow many are you selling?"
-            buttons = []
-            for qty in [1, 2, 3, 5, 10]:
-                if qty <= item['quantity']:
-                    buttons.append([{"text": str(qty), "callback_data": f"sellqty_{item_id}_{qty}"}])
-            buttons.append([{"text": "🔢 Custom Amount", "callback_data": f"sellqty_custom_{item_id}"}])
-            buttons.append([{"text": "❌ Cancel", "callback_data": "main_menu"}])
-            markup = {"inline_keyboard": buttons}
-        edit_message(chat_id, message_id, text, reply_markup=markup)
-        return
-
-    elif callback_data.startswith("sellqty_custom_"):
-        item_id = int(callback_data[17:])
-        save_state(chat_id, f"sell_custom_qty_{item_id}")
-        send_force_reply(chat_id, "💰 *RECORD SALE*\n\nHow many units are you selling?\n\n_The keyboard is open. Type the number and send._", "e.g. 7")
-        return
-
-    elif callback_data.startswith("sellqty_"):
-        parts = callback_data.split("_")
-        item_id = int(parts[1])
-        qty = int(parts[2])
-        # Two clear options for customer info
-        markup = {"inline_keyboard": [
-            [{"text": "🚶 Walk-in Customer", "callback_data": f"sell_walkin_{item_id}_{qty}"}],
-            [{"text": "✍️ Enter Name & Number", "callback_data": f"sell_type_{item_id}_{qty}"}],
-            [{"text": "❌ Cancel", "callback_data": "main_menu"}]
-        ]}
-        text = "💰 *RECORD SALE*\n\nWho is buying this?\n\n_Tap an option below._"
-        edit_message(chat_id, message_id, text, reply_markup=markup)
+            text = f"💰 *RECORD SALE*\n\nItem: *{item['item_name']}*{color_str}\nAvailable: {item['quantity']} pcs\n\n*How many are you selling?*\n\n_Tap below to type the amount._"
+            save_state(chat_id, f"sell_enter_qty_{item_id}")
+            markup = {"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]}
+            edit_message(chat_id, message_id, text, reply_markup=markup)
+            send_force_reply(chat_id, "👇 *Type the quantity now:*", "e.g. 5")
         return
 
     elif callback_data.startswith("sell_walkin_"):
@@ -299,12 +275,11 @@ def button_handler(query):
         sales = conn.execute("SELECT * FROM sales ORDER BY sold_at DESC LIMIT 10").fetchall()
         conn.close()
         if not sales:
-            text = " No recent sales recorded."
+            text = "📜 No recent sales recorded."
         else:
-            text = "📜 *RECENT SALES (Last 10)*\n\n"
+            text = " *RECENT SALES (Last 10)*\n\n"
             for sale in sales:
                 color_str = f" ({sale['color']})" if sale['color'] else ""
-                # Format date/time nicely
                 dt = sale['sold_at']
                 if dt:
                     try:
@@ -315,15 +290,15 @@ def button_handler(query):
                 else:
                     dt_str = "Unknown"
                     
-                text += f"• {sale['item_name']}{color_str} x{sale['quantity']}\n  🕒 {dt_str}\n  👤 {sale['customer_info']}\n  💰 Profit: GHS {sale['profit']:.2f}\n\n"
+                text += f"• {sale['item_name']}{color_str} x{sale['quantity']}\n   {dt_str}\n  👤 {sale['customer_info']}\n  💰 Profit: GHS {sale['profit']:.2f}\n\n"
         markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         edit_message(chat_id, message_id, text, reply_markup=markup)
         return
 
-    # ADD STOCK (New Flow: Category -> Item -> Qty)
+    # ADD STOCK (Category -> Item -> Type Amount)
     elif callback_data == "main_add_stock":
         if chat_id not in OWNER_IDS:
-            text = " Only the owner can add stock."
+            text = "❌ Only the owner can add stock."
             markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
             edit_message(chat_id, message_id, text, reply_markup=markup)
             return
@@ -331,7 +306,7 @@ def button_handler(query):
         categories = conn.execute("SELECT DISTINCT category FROM stock ORDER BY category").fetchall()
         conn.close()
         buttons = [[{"text": cat['category'], "callback_data": f"addcat_stock_{cat['category']}"}] for cat in categories]
-        buttons.append([{"text": " Add Brand New Item", "callback_data": "addstock_new"}])
+        buttons.append([{"text": "➕ Add Brand New Item", "callback_data": "addstock_new"}])
         buttons.append([{"text": "🏠 Main Menu", "callback_data": "main_menu"}])
         text = "➕ *ADD STOCK*\n\nSelect a category to restock, or add a new item:"
         markup = {"inline_keyboard": buttons}
@@ -352,7 +327,7 @@ def button_handler(query):
                 color_str = f" ({item['color']})" if item['color'] else ""
                 title = f"{item['item_name']}{color_str} [Qty: {item['quantity']}]"
                 buttons.append([{"text": title, "callback_data": f"additem_{item['id']}"}])
-            buttons.append([{"text": "️ Back to Categories", "callback_data": "main_add_stock"}])
+            buttons.append([{"text": "⬅️ Back to Categories", "callback_data": "main_add_stock"}])
             text = f"➕ *ADD STOCK: {category}*\n\nSelect the exact item to restock:"
             markup = {"inline_keyboard": buttons}
         edit_message(chat_id, message_id, text, reply_markup=markup)
@@ -365,43 +340,14 @@ def button_handler(query):
         conn.close()
         if not item:
             text = "Item not found."
-            markup = {"inline_keyboard": [[{"text": "⬅️ Back", "callback_data": "main_add_stock"}]]}
+            markup = {"inline_keyboard": [[{"text": "️ Back", "callback_data": "main_add_stock"}]]}
         else:
             color_str = f" ({item['color']})" if item['color'] else ""
-            text = f"➕ *RESTOCK: {item['item_name']}*{color_str}\n\nCurrent Stock: {item['quantity']}\n\nHow many units are you adding?"
-            buttons = []
-            for qty in [5, 10, 20, 50, 100]:
-                buttons.append([{"text": str(qty), "callback_data": f"addqty_{item_id}_{qty}"}])
-            buttons.append([{"text": " Custom Amount", "callback_data": f"addqty_custom_{item_id}"}])
-            buttons.append([{"text": "❌ Cancel", "callback_data": "main_menu"}])
-            markup = {"inline_keyboard": buttons}
-        edit_message(chat_id, message_id, text, reply_markup=markup)
-        return
-
-    elif callback_data.startswith("addqty_custom_"):
-        item_id = int(callback_data[16:])
-        save_state(chat_id, f"add_custom_qty_{item_id}")
-        send_force_reply(chat_id, "➕ *ADD STOCK*\n\nHow many units are you adding?\n\n_The keyboard is open. Type the number and send._", "e.g. 25")
-        return
-
-    elif callback_data.startswith("addqty_"):
-        parts = callback_data.split("_")
-        item_id = int(parts[1])
-        qty = int(parts[2])
-        conn = get_db()
-        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
-        if item:
-            new_qty = item['quantity'] + qty
-            conn.execute("UPDATE stock SET quantity=? WHERE id=?", (new_qty, item_id))
-            conn.commit()
-            text = f"✅ *Stock Updated!*\n\n*{item['item_name']}*: {item['quantity']} → {new_qty}\n\n*What next?*"
-            markup = {"inline_keyboard": [[{"text": "➕ Add More Stock", "callback_data": "main_add_stock"}, {"text": " Main Menu", "callback_data": "main_menu"}]]}
-        else:
-            text = "❌ Item not found."
-            markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
-        conn.close()
-        clear_state(chat_id)
-        edit_message(chat_id, message_id, text, reply_markup=markup)
+            text = f"➕ *RESTOCK: {item['item_name']}*{color_str}\n\nCurrent Stock: {item['quantity']}\n\n*How many units are you adding?*\n\n_Tap below to type the amount._"
+            save_state(chat_id, f"add_enter_qty_{item_id}")
+            markup = {"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]}
+            edit_message(chat_id, message_id, text, reply_markup=markup)
+            send_force_reply(chat_id, " *Type the quantity now:*", "e.g. 20")
         return
 
     elif callback_data == "addstock_new":
@@ -424,37 +370,11 @@ def button_handler(query):
         else:
             data_dict['color'] = color
             save_state(chat_id, "add_new_qty", data_dict)
-            text = f"✅ Color: *{color}*\n\nHow many units are you adding?"
-            buttons = []
-            for qty in [5, 10, 20, 50, 100]:
-                buttons.append([{"text": str(qty), "callback_data": f"addqty_new_{data_dict['name']}_{color}_{qty}"}])
-            buttons.append([{"text": "🔢 Custom Amount", "callback_data": f"addqty_custom_new_{data_dict['name']}_{color}"}])
-            buttons.append([{"text": " Cancel", "callback_data": "main_menu"}])
-            markup = {"inline_keyboard": buttons}
+            text = f"✅ Color: *{color}*\n\n*How many units are you adding?*\n\n_Tap below to type the amount._"
+            markup = {"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]}
             edit_message(chat_id, message_id, text, reply_markup=markup)
+            send_force_reply(chat_id, "👇 *Type the quantity now:*", "e.g. 15")
             return
-
-    elif callback_data.startswith("addqty_custom_new_"):
-        # Format: addqty_custom_new_{name}_{color}
-        parts = callback_data.split("_", 4)
-        name = parts[3]
-        color = parts[4]
-        save_state(chat_id, f"add_custom_qty_new_{name}_{color}")
-        send_force_reply(chat_id, f"➕ *ADD NEW ITEM: {name} ({color})*\n\nHow many units?\n\n_The keyboard is open. Type and send._", "e.g. 15")
-        return
-
-    elif callback_data.startswith("addqty_new_"):
-        parts = callback_data.split("_", 5)
-        name = parts[3]
-        color = parts[4]
-        qty = int(parts[5])
-        # For new items, we just save the qty and move to cost price
-        state, data_dict = get_state(chat_id)
-        data_dict['qty'] = qty
-        save_state(chat_id, "add_new_cost", data_dict)
-        send_message(chat_id, f"✅ Quantity: *{qty}*\n\nWhat is the cost price per unit?",
-                    reply_markup={"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]})
-        return
 
     elif callback_data.startswith("addcat_"):
         state, data_dict = get_state(chat_id)
@@ -507,7 +427,7 @@ def button_handler(query):
         count = result['count'] or 0
         total = result['total'] or 0
         today = datetime.now().strftime("%d/%m/%Y")
-        text = f"📊 *DAILY SUMMARY ({today})*\n\n🛒 Sales Today: {count}\n💰 Total Profit: GHS {total:.2f}\n\n*What next?*"
+        text = f" *DAILY SUMMARY ({today})*\n\n🛒 Sales Today: {count}\n Total Profit: GHS {total:.2f}\n\n*What next?*"
         markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         edit_message(chat_id, message_id, text, reply_markup=markup)
         return
@@ -561,7 +481,7 @@ def process_sale_confirmation(chat_id, item_id, qty, customer_info, message_id=N
     color_str = f" ({item['color']})" if item['color'] else ""
     now = datetime.now().strftime("%d/%m/%Y %I:%M %p")
     
-    text = f"✅ *Sale Recorded!*\n\n🕒 {now}\n📦 Sold {qty}x *{item['item_name']}*{color_str}\n👤 Customer: *{customer_info}*\n📉 Remaining: {new_qty}\n Profit: GHS {profit:.2f}\n\n*What next?*"
+    text = f"✅ *Sale Recorded!*\n\n🕒 {now}\n📦 Sold {qty}x *{item['item_name']}*{color_str}\n👤 Customer: *{customer_info}*\n📉 Remaining: {new_qty}\n💰 Profit: GHS {profit:.2f}\n\n*What next?*"
     markup = {"inline_keyboard": [[{"text": "💰 Record Another Sale", "callback_data": "main_record_sale"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
     
     if message_id:
@@ -588,65 +508,83 @@ def handle_text_message(chat_id, text):
 
     state, data_dict = get_state(chat_id)
 
-    if state == "add_new_name":
+    # 1. Handle Sale Quantity Input
+    if state and state.startswith("sell_enter_qty_"):
+        item_id = int(state.split("_")[3])
+        try:
+            qty = int(text)
+            if qty <= 0: raise ValueError
+        except ValueError:
+            send_message(chat_id, "❌ Please enter a valid positive number.")
+            return
+        
+        conn = get_db()
+        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        conn.close()
+        if item and qty > item['quantity']:
+            send_message(chat_id, f"❌ Not enough stock! Only {item['quantity']} available.")
+            return
+
+        # Show the two clear options for customer info
+        markup = {"inline_keyboard": [
+            [{"text": "🚶 Walk-in Customer", "callback_data": f"sell_walkin_{item_id}_{qty}"}],
+            [{"text": "️ Enter Name & Number", "callback_data": f"sell_type_{item_id}_{qty}"}],
+            [{"text": "❌ Cancel", "callback_data": "main_menu"}]
+        ]}
+        send_message(chat_id, f"✅ Quantity: *{qty}*\n\nWho is buying this?\n\n_Tap an option below._", reply_markup=markup)
+        return
+
+    # 2. Handle Customer Info Input
+    elif state and state.startswith("sell_type_"):
+        parts = state.split("_")
+        item_id = int(parts[2])
+        qty = int(parts[3])
+        customer_info = text if text.lower() != "walk-in" else "Walk-in Customer"
+        process_sale_confirmation(chat_id, item_id, qty, customer_info)
+        return
+
+    # 3. Handle Add Stock (Restock) Quantity Input
+    elif state and state.startswith("add_enter_qty_"):
+        item_id = int(state.split("_")[3])
+        try:
+            qty = int(text)
+            if qty <= 0: raise ValueError
+        except ValueError:
+            send_message(chat_id, "❌ Please enter a valid positive number.")
+            return
+        
+        conn = get_db()
+        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        if item:
+            new_qty = item['quantity'] + qty
+            conn.execute("UPDATE stock SET quantity=? WHERE id=?", (new_qty, item_id))
+            conn.commit()
+            text_msg = f"✅ *Stock Updated!*\n\n*{item['item_name']}*: {item['quantity']} → {new_qty}\n\n*What next?*"
+            markup = {"inline_keyboard": [[{"text": "➕ Add More Stock", "callback_data": "main_add_stock"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
+        else:
+            text_msg = "❌ Item not found."
+            markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
+        conn.close()
+        clear_state(chat_id)
+        send_message(chat_id, text_msg, reply_markup=markup)
+        return
+
+    # 4. Handle Add New Item Flow
+    elif state == "add_new_name":
         data_dict['name'] = text
         save_state(chat_id, "add_new_color_btn", data_dict)
-        markup = {"inline_keyboard": get_color_buttons() + [[{"text": " Cancel", "callback_data": "main_menu"}]]}
+        markup = {"inline_keyboard": get_color_buttons() + [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]}
         send_message(chat_id, f"✅ Item: *{text}*\n\nSelect color:", reply_markup=markup)
         return
 
     elif state == "add_new_color_text":
         data_dict['color'] = text
         save_state(chat_id, "add_new_qty", data_dict)
-        markup = {"inline_keyboard": [
-            [{"text": "5", "callback_data": f"addqty_new_{data_dict['name']}_{text}_5"}, {"text": "10", "callback_data": f"addqty_new_{data_dict['name']}_{text}_10"}],
-            [{"text": "20", "callback_data": f"addqty_new_{data_dict['name']}_{text}_20"}, {"text": "50", "callback_data": f"addqty_new_{data_dict['name']}_{text}_50"}],
-            [{"text": "🔢 Custom", "callback_data": f"addqty_custom_new_{data_dict['name']}_{text}"}],
-            [{"text": "❌ Cancel", "callback_data": "main_menu"}]
-        ]}
-        send_message(chat_id, f"✅ Color: *{text}*\n\nHow many units are you adding?", reply_markup=markup)
+        text = f"✅ Color: *{text}*\n\n*How many units are you adding?*\n\n_Tap below to type the amount._"
+        markup = {"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]}
+        send_message(chat_id, text, reply_markup=markup)
+        send_force_reply(chat_id, "👇 *Type the quantity now:*", "e.g. 15")
         return
-
-    elif state and state.startswith("add_custom_qty_"):
-        # Handle both existing items (add_custom_qty_{id}) and new items (add_custom_qty_new_{name}_{color})
-        if state.startswith("add_custom_qty_new_"):
-            parts = state.split("_", 4)
-            name = parts[3]
-            color = parts[4]
-            try:
-                qty = int(text)
-                if qty <= 0: raise ValueError
-            except ValueError:
-                send_message(chat_id, "❌ Please enter a valid positive number.")
-                return
-            data_dict['qty'] = qty
-            save_state(chat_id, "add_new_cost", data_dict)
-            send_message(chat_id, f"✅ Quantity: *{qty}*\n\nWhat is the cost price per unit?",
-                        reply_markup={"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]})
-            return
-        else:
-            item_id = int(state.split("_")[3])
-            try:
-                qty = int(text)
-                if qty <= 0: raise ValueError
-            except ValueError:
-                send_message(chat_id, "❌ Please enter a valid positive number.")
-                return
-            conn = get_db()
-            item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
-            if item:
-                new_qty = item['quantity'] + qty
-                conn.execute("UPDATE stock SET quantity=? WHERE id=?", (new_qty, item_id))
-                conn.commit()
-                text_msg = f"✅ *Stock Updated!*\n\n*{item['item_name']}*: {item['quantity']} → {new_qty}\n\n*What next?*"
-                markup = {"inline_keyboard": [[{"text": "➕ Add More Stock", "callback_data": "main_add_stock"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
-            else:
-                text_msg = "❌ Item not found."
-                markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
-            conn.close()
-            clear_state(chat_id)
-            send_message(chat_id, text_msg, reply_markup=markup)
-            return
 
     elif state == "add_new_qty":
         try:
@@ -658,7 +596,7 @@ def handle_text_message(chat_id, text):
         data_dict['qty'] = qty
         save_state(chat_id, "add_new_cost", data_dict)
         send_message(chat_id, f"✅ Quantity: *{qty}*\n\nWhat is the cost price per unit?",
-                    reply_markup={"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]})
+                    reply_markup={"inline_keyboard": [[{"text": " Cancel", "callback_data": "main_menu"}]]})
         return
     
     elif state == "add_new_cost":
@@ -666,7 +604,7 @@ def handle_text_message(chat_id, text):
             cost = float(text)
             if cost < 0: raise ValueError
         except ValueError:
-            send_message(chat_id, " Please enter a valid number.")
+            send_message(chat_id, "❌ Please enter a valid number.")
             return
         data_dict['cost'] = cost
         save_state(chat_id, "add_new_sell", data_dict)
@@ -679,7 +617,7 @@ def handle_text_message(chat_id, text):
             sell = float(text)
             if sell < 0: raise ValueError
         except ValueError:
-            send_message(chat_id, " Please enter a valid number.")
+            send_message(chat_id, "❌ Please enter a valid number.")
             return
         data_dict['sell'] = sell
         save_state(chat_id, "add_new_category_pending", data_dict)
@@ -690,7 +628,7 @@ def handle_text_message(chat_id, text):
         for cat in categories[:5]:
             buttons.append([{"text": cat['category'], "callback_data": f"addcat_{cat['category']}"}])
         buttons.append([{"text": "📝 Type Custom Category", "callback_data": "addcat_custom"}])
-        buttons.append([{"text": " Cancel", "callback_data": "main_menu"}])
+        buttons.append([{"text": "❌ Cancel", "callback_data": "main_menu"}])
         send_message(chat_id, f"✅ Sell: *GHS {sell:.2f}*\n\nSelect a category:", reply_markup={"inline_keyboard": buttons})
         return
     
@@ -702,35 +640,10 @@ def handle_text_message(chat_id, text):
         send_message(chat_id, text_msg, reply_markup=markup)
         return
 
-    elif state and state.startswith("sell_custom_qty_"):
-        item_id = int(state.split("_")[3])
-        try:
-            qty = int(text)
-            if qty <= 0: raise ValueError
-        except ValueError:
-            send_message(chat_id, " Please enter a valid positive number.")
-            return
-        # Show the two clear options again
-        markup = {"inline_keyboard": [
-            [{"text": " Walk-in Customer", "callback_data": f"sell_walkin_{item_id}_{qty}"}],
-            [{"text": "✍️ Enter Name & Number", "callback_data": f"sell_type_{item_id}_{qty}"}],
-            [{"text": "❌ Cancel", "callback_data": "main_menu"}]
-        ]}
-        send_message(chat_id, f"✅ Quantity: *{qty}*\n\nWho is buying this?\n\n_Tap an option below._", reply_markup=markup)
-        return
-
-    elif state and state.startswith("sell_type_"):
-        parts = state.split("_")
-        item_id = int(parts[2])
-        qty = int(parts[3])
-        customer_info = text if text.lower() != "walk-in" else "Walk-in Customer"
-        process_sale_confirmation(chat_id, item_id, qty, customer_info)
-        return
-
     # FALLBACK
     if chat_id in ALLOWED_IDS:
         text_msg, markup = build_main_menu(chat_id)
-        send_message(chat_id, "🤔 I didn't catch that. Here is the main menu:", reply_markup=markup)
+        send_message(chat_id, " I didn't catch that. Here is the main menu:", reply_markup=markup)
         clear_state(chat_id)
     else:
         send_message(chat_id, "⛔ Access Denied.")
