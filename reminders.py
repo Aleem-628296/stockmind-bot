@@ -1,7 +1,8 @@
 import os
 import time
 import json
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
@@ -12,6 +13,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SECRETARY_IDS = [int(id.strip()) for id in os.getenv("SECRETARY_ID", "").split(",") if id.strip()]
 NOTIFICATION_IDS = [int(id.strip()) for id in os.getenv("NOTIFICATION_IDS", "").split(",") if id.strip()]
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 LOG_FILE = "reminders_log.json"
 
@@ -37,9 +39,11 @@ def send_message(chat_id, text):
         print(f"Reminder Send Error: {e}")
 
 def get_pending_sales():
-    conn = sqlite3.connect('stock.db', timeout=10)
-    conn.row_factory = sqlite3.Row
-    sales = conn.execute("SELECT * FROM sales WHERE payment_status='pending'").fetchall()
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM sales WHERE payment_status='pending'")
+    sales = cur.fetchall()
+    cur.close()
     conn.close()
     return sales
 
@@ -50,7 +54,6 @@ def run_reminders():
     current_hour = now.hour
     current_date = now.strftime("%Y-%m-%d")
     
-    # Route to NOTIFICATION_IDS if set, otherwise fallback to SECRETARY_IDS
     notify_targets = NOTIFICATION_IDS if NOTIFICATION_IDS else SECRETARY_IDS
     
     for sale in sales:
@@ -60,7 +63,10 @@ def run_reminders():
             continue
             
         try:
-            dt_obj = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
+            if isinstance(dt, str):
+                dt_obj = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
+            else:
+                dt_obj = dt
         except Exception:
             continue
             
@@ -99,4 +105,4 @@ if __name__ == "__main__":
             run_reminders()
         except Exception as e:
             print(f"Error in reminder loop: {e}")
-        time.sleep(900) # 15 minutes
+        time.sleep(900)

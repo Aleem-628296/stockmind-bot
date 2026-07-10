@@ -1,7 +1,8 @@
 import os
-import sqlite3
 import json
 import requests
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from datetime import datetime
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
@@ -16,31 +17,28 @@ NOTIFICATION_IDS = [int(id.strip()) for id in os.getenv("NOTIFICATION_IDS", "").
 ALLOWED_IDS = OWNER_IDS + SECRETARY_IDS
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # --- DATABASE FUNCTIONS ---
 def init_db():
-    conn = sqlite3.connect('stock.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('PRAGMA journal_mode=WAL;')
-    c.execute('''CREATE TABLE IF NOT EXISTS stock
-    (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT, color TEXT, quantity INTEGER,
-    cost_price REAL, selling_price REAL, category TEXT, UNIQUE(item_name, color))''')
-    c.execute('''CREATE TABLE IF NOT EXISTS sales
-    (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT, color TEXT, quantity INTEGER,
-    profit REAL, sold_by INTEGER, customer_info TEXT, sold_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS user_state
-    (chat_id INTEGER PRIMARY KEY, state TEXT, data TEXT)''')
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
     
-    try:
-        c.execute("ALTER TABLE sales ADD COLUMN customer_info TEXT DEFAULT 'Walk-in'")
-    except sqlite3.OperationalError:
-        pass
-        
-    try:
-        c.execute("ALTER TABLE sales ADD COLUMN payment_status TEXT DEFAULT 'paid'")
-    except sqlite3.OperationalError:
-        pass
-
+    cur.execute('''CREATE TABLE IF NOT EXISTS stock
+    (id SERIAL PRIMARY KEY, item_name TEXT, color TEXT, quantity INTEGER,
+    cost_price REAL, selling_price REAL, category TEXT, 
+    UNIQUE(item_name, color))''')
+    
+    cur.execute('''CREATE TABLE IF NOT EXISTS sales
+    (id SERIAL PRIMARY KEY, item_name TEXT, color TEXT, quantity INTEGER,
+    profit REAL, sold_by INTEGER, customer_info TEXT, 
+    payment_status TEXT DEFAULT 'paid',
+    sold_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    
+    cur.execute('''CREATE TABLE IF NOT EXISTS user_state
+    (chat_id BIGINT PRIMARY KEY, state TEXT, data TEXT)''')
+    
+    # Insert default stock items
     colors = ["White", "Black", "Yellow", "Green", "Red", "Purple", "Gold", "Silver", "Blue"]
     items = []
     for screen in ["iPhone Screen", "Samsung Screen", "Infinix Screen", "Tecno Screen", "iPad Touch Screen"]:
@@ -58,25 +56,38 @@ def init_db():
         items.append((cam, "", 1, 0.0, 0.0, "Cameras & Sensors"))
     items.append(("Down Screws", "", 1, 0.0, 0.0, "Small Parts"))
     
-    c.executemany("INSERT OR IGNORE INTO stock (item_name, color, quantity, cost_price, selling_price, category) VALUES (?, ?, ?, ?, ?, ?)", items)
+    for item in items:
+        cur.execute("""INSERT INTO stock (item_name, color, quantity, cost_price, selling_price, category)
+                      VALUES (%s, %s, %s, %s, %s, %s)
+                      ON CONFLICT (item_name, color) DO NOTHING""", item)
+    
     conn.commit()
+    cur.close()
     conn.close()
+    print("✅ Database initialized successfully")
 
 def get_db():
-    conn = sqlite3.connect('stock.db', timeout=10, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
 
 def save_state(chat_id, state, data_dict=None):
     conn = get_db()
+    cur = conn.cursor()
     data_json = json.dumps(data_dict) if data_dict else "{}"
-    conn.execute("INSERT OR REPLACE INTO user_state (chat_id, state, data) VALUES (?, ?, ?)", (chat_id, state, data_json))
+    cur.execute("""INSERT INTO user_state (chat_id, state, data) 
+                  VALUES (%s, %s, %s)
+                  ON CONFLICT (chat_id) DO UPDATE SET state=%s, data=%s""",
+                (chat_id, state, data_json, state, data_json))
     conn.commit()
+    cur.close()
     conn.close()
 
 def get_state(chat_id):
     conn = get_db()
-    row = conn.execute("SELECT state, data FROM user_state WHERE chat_id=?", (chat_id,)).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT state, data FROM user_state WHERE chat_id=%s", (chat_id,))
+    row = cur.fetchone()
+    cur.close()
     conn.close()
     if row:
         try:
@@ -87,8 +98,10 @@ def get_state(chat_id):
 
 def clear_state(chat_id):
     conn = get_db()
-    conn.execute("DELETE FROM user_state WHERE chat_id=?", (chat_id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM user_state WHERE chat_id=%s", (chat_id,))
     conn.commit()
+    cur.close()
     conn.close()
 
 # --- TELEGRAM API FUNCTIONS ---
@@ -178,7 +191,10 @@ def button_handler(query):
     # VIEW STOCK
     elif callback_data == "main_view_stock":
         conn = get_db()
-        categories = conn.execute("SELECT DISTINCT category FROM stock ORDER BY category").fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT category FROM stock ORDER BY category")
+        categories = cur.fetchall()
+        cur.close()
         conn.close()
         if not categories:
             text = "📋 No items in stock yet."
@@ -194,7 +210,10 @@ def button_handler(query):
     elif callback_data.startswith("viewcat_"):
         category = callback_data[8:]
         conn = get_db()
-        items = conn.execute("SELECT * FROM stock WHERE category=? ORDER BY item_name", (category,)).fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE category=%s ORDER BY item_name", (category,))
+        items = cur.fetchall()
+        cur.close()
         conn.close()
         if not items:
             text = f"📋 No items in *{category}*."
@@ -210,7 +229,10 @@ def button_handler(query):
     # RECORD SALE
     elif callback_data == "main_record_sale":
         conn = get_db()
-        categories = conn.execute("SELECT DISTINCT category FROM stock WHERE quantity > 0 ORDER BY category").fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT category FROM stock WHERE quantity > 0 ORDER BY category")
+        categories = cur.fetchall()
+        cur.close()
         conn.close()
         if not categories:
             text = "📋 No items in stock to sell."
@@ -226,7 +248,10 @@ def button_handler(query):
     elif callback_data.startswith("sellcat_"):
         category = callback_data[8:]
         conn = get_db()
-        items = conn.execute("SELECT * FROM stock WHERE category=? AND quantity > 0 ORDER BY item_name", (category,)).fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE category=%s AND quantity > 0 ORDER BY item_name", (category,))
+        items = cur.fetchall()
+        cur.close()
         conn.close()
         if not items:
             text = f"No items in stock for *{category}*."
@@ -246,7 +271,10 @@ def button_handler(query):
     elif callback_data.startswith("sellitem_"):
         item_id = int(callback_data[9:])
         conn = get_db()
-        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
+        item = cur.fetchone()
+        cur.close()
         conn.close()
         if not item:
             text = "Item not found."
@@ -290,7 +318,10 @@ def button_handler(query):
 
     elif callback_data == "main_recent_sales":
         conn = get_db()
-        sales = conn.execute("SELECT * FROM sales ORDER BY sold_at DESC LIMIT 10").fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM sales ORDER BY sold_at DESC LIMIT 10")
+        sales = cur.fetchall()
+        cur.close()
         conn.close()
         if not sales:
             text = "📜 No recent sales recorded."
@@ -301,10 +332,9 @@ def button_handler(query):
                 dt = sale['sold_at']
                 if dt:
                     try:
-                        dt_obj = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
-                        dt_str = dt_obj.strftime("%d/%m/%Y %I:%M %p")
+                        dt_str = dt.strftime("%d/%m/%Y %I:%M %p")
                     except:
-                        dt_str = dt
+                        dt_str = str(dt)
                 else:
                     dt_str = "Unknown"
                 text += f"• {sale['item_name']}{color_str} x{sale['quantity']}\n  🕒 {dt_str}\n  👤 {sale['customer_info']}\n  💰 Profit: GHS {sale['profit']:.2f}\n\n"
@@ -312,7 +342,7 @@ def button_handler(query):
         edit_message(chat_id, message_id, text, reply_markup=markup)
         return
 
-    # ADD STOCK - NEW FLOW
+    # ADD STOCK
     elif callback_data == "main_add_stock":
         if chat_id not in OWNER_IDS:
             text = "❌ Only the owner can add stock."
@@ -333,8 +363,11 @@ def button_handler(query):
         else:
             data_dict['color'] = color if color != "none" else ""
             conn = get_db()
-            item = conn.execute("SELECT * FROM stock WHERE item_name=? AND color=?", 
-                              (data_dict['name'], data_dict['color'])).fetchone()
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM stock WHERE item_name=%s AND color=%s", 
+                      (data_dict['name'], data_dict['color']))
+            item = cur.fetchone()
+            cur.close()
             conn.close()
             if item:
                 data_dict['existing_id'] = item['id']
@@ -403,19 +436,22 @@ def button_handler(query):
             edit_message(chat_id, message_id, text, reply_markup=markup)
             return
         conn = get_db()
+        cur = conn.cursor()
         try:
-            conn.execute("""INSERT INTO stock (item_name, color, quantity, cost_price, selling_price, category)
-                         VALUES (?, ?, ?, ?, ?, ?)""",
+            cur.execute("""INSERT INTO stock (item_name, color, quantity, cost_price, selling_price, category)
+                         VALUES (%s, %s, %s, %s, %s, %s)""",
                          (data_dict['name'], data_dict['color'], data_dict['qty'],
                           data_dict['cost'], data_dict['sell'], data_dict['category']))
             conn.commit()
             color_str = f" ({data_dict['color']})" if data_dict['color'] else ""
             text = f"✅ *Added!*\n\n{data_dict['name']}{color_str} x{data_dict['qty']}\nCost: GHS {data_dict['cost']:.2f}\nSell: GHS {data_dict['sell']:.2f}\nCategory: {data_dict['category']}\n\n*What next?*"
             markup = {"inline_keyboard": [[{"text": "➕ Add More Stock", "callback_data": "main_add_stock"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
-        except sqlite3.IntegrityError:
+        except psycopg2.IntegrityError:
+            conn.rollback()
             text = "❌ Item with same name and color already exists."
             markup = {"inline_keyboard": [[{"text": "➕ Add More Stock", "callback_data": "main_add_stock"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         finally:
+            cur.close()
             conn.close()
         clear_state(chat_id)
         edit_message(chat_id, message_id, text, reply_markup=markup)
@@ -429,7 +465,10 @@ def button_handler(query):
             edit_message(chat_id, message_id, text, reply_markup=markup)
             return
         conn = get_db()
-        categories = conn.execute("SELECT DISTINCT category FROM stock ORDER BY category").fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT category FROM stock ORDER BY category")
+        categories = cur.fetchall()
+        cur.close()
         conn.close()
         buttons = [[{"text": cat['category'], "callback_data": f"editcat_{cat['category']}"}] for cat in categories]
         buttons.append([{"text": "🏠 Main Menu", "callback_data": "main_menu"}])
@@ -441,7 +480,10 @@ def button_handler(query):
     elif callback_data.startswith("editcat_"):
         category = callback_data[8:]
         conn = get_db()
-        items = conn.execute("SELECT * FROM stock WHERE category=? ORDER BY item_name", (category,)).fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE category=%s ORDER BY item_name", (category,))
+        items = cur.fetchall()
+        cur.close()
         conn.close()
         if not items:
             text = f"No items in *{category}*."
@@ -461,7 +503,10 @@ def button_handler(query):
     elif callback_data.startswith("edititem_"):
         item_id = int(callback_data[9:])
         conn = get_db()
-        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
+        item = cur.fetchone()
+        cur.close()
         conn.close()
         if not item:
             text = "Item not found."
@@ -498,7 +543,10 @@ def button_handler(query):
     elif callback_data.startswith("editcat_field_"):
         item_id = int(callback_data[14:])
         conn = get_db()
-        categories = conn.execute("SELECT DISTINCT category FROM stock ORDER BY category").fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT category FROM stock ORDER BY category")
+        categories = cur.fetchall()
+        cur.close()
         conn.close()
         buttons = [[{"text": cat['category'], "callback_data": f"editcatset_{item_id}_{cat['category']}"}] for cat in categories[:6]]
         buttons.append([{"text": "📝 Type Custom", "callback_data": f"editcatcustom_{item_id}"}])
@@ -512,8 +560,10 @@ def button_handler(query):
         item_id = int(parts[1])
         category = parts[2]
         conn = get_db()
-        conn.execute("UPDATE stock SET category=? WHERE id=?", (category, item_id))
+        cur = conn.cursor()
+        cur.execute("UPDATE stock SET category=%s WHERE id=%s", (category, item_id))
         conn.commit()
+        cur.close()
         conn.close()
         text = f"✅ *Category Updated!*\n\nNow in: *{category}*"
         markup = {"inline_keyboard": [[{"text": "✏️ Edit Another", "callback_data": "main_edit_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
@@ -534,7 +584,10 @@ def button_handler(query):
             edit_message(chat_id, message_id, text, reply_markup=markup)
             return
         conn = get_db()
-        categories = conn.execute("SELECT DISTINCT category FROM stock ORDER BY category").fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT category FROM stock ORDER BY category")
+        categories = cur.fetchall()
+        cur.close()
         conn.close()
         buttons = [[{"text": cat['category'], "callback_data": f"removecat_{cat['category']}"}] for cat in categories]
         buttons.append([{"text": "🏠 Main Menu", "callback_data": "main_menu"}])
@@ -546,7 +599,10 @@ def button_handler(query):
     elif callback_data.startswith("removecat_"):
         category = callback_data[10:]
         conn = get_db()
-        items = conn.execute("SELECT * FROM stock WHERE category=? ORDER BY item_name", (category,)).fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE category=%s ORDER BY item_name", (category,))
+        items = cur.fetchall()
+        cur.close()
         conn.close()
         if not items:
             text = f"No items in *{category}*."
@@ -566,7 +622,10 @@ def button_handler(query):
     elif callback_data.startswith("removeitem_"):
         item_id = int(callback_data[11:])
         conn = get_db()
-        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
+        item = cur.fetchone()
+        cur.close()
         conn.close()
         if not item:
             text = "Item not found."
@@ -584,7 +643,10 @@ def button_handler(query):
     elif callback_data.startswith("removeall_"):
         item_id = int(callback_data[10:])
         conn = get_db()
-        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
+        item = cur.fetchone()
+        cur.close()
         conn.close()
         if item:
             color_str = f" ({item['color']})" if item['color'] else ""
@@ -604,8 +666,10 @@ def button_handler(query):
     elif callback_data.startswith("confirmdelete_"):
         item_id = int(callback_data[14:])
         conn = get_db()
-        conn.execute("DELETE FROM stock WHERE id=?", (item_id,))
+        cur = conn.cursor()
+        cur.execute("DELETE FROM stock WHERE id=%s", (item_id,))
         conn.commit()
+        cur.close()
         conn.close()
         text = "🗑️ *Item Deleted Successfully!*\n\n*What next?*"
         markup = {"inline_keyboard": [[{"text": "🗑️ Remove Another", "callback_data": "main_remove_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
@@ -615,8 +679,12 @@ def button_handler(query):
 
     elif callback_data == "main_summary":
         conn = get_db()
-        result = conn.execute("SELECT COUNT(*) as count, SUM(profit) as total FROM sales WHERE date(sold_at)=date('now')").fetchone()
-        pending_result = conn.execute("SELECT COUNT(*) as count, SUM(profit) as total FROM sales WHERE date(sold_at)=date('now') AND payment_status='pending'").fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) as count, SUM(profit) as total FROM sales WHERE DATE(sold_at)=CURRENT_DATE")
+        result = cur.fetchone()
+        cur.execute("SELECT COUNT(*) as count, SUM(profit) as total FROM sales WHERE DATE(sold_at)=CURRENT_DATE AND payment_status='pending'")
+        pending_result = cur.fetchone()
+        cur.close()
         conn.close()
         
         count = result['count'] or 0
@@ -637,7 +705,10 @@ def button_handler(query):
             edit_message(chat_id, message_id, text, reply_markup=markup)
             return
         conn = get_db()
-        items = conn.execute("SELECT * FROM stock WHERE quantity <= 5 ORDER BY quantity ASC").fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE quantity <= 5 ORDER BY quantity ASC")
+        items = cur.fetchall()
+        cur.close()
         conn.close()
         if items:
             text = "⚠️ *LOW STOCK ALERT*\n\n"
@@ -658,7 +729,10 @@ def button_handler(query):
             return
         
         conn = get_db()
-        sales = conn.execute("SELECT * FROM sales WHERE payment_status='pending' ORDER BY sold_at ASC").fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM sales WHERE payment_status='pending' ORDER BY sold_at ASC")
+        sales = cur.fetchall()
+        cur.close()
         conn.close()
         
         if not sales:
@@ -673,8 +747,7 @@ def button_handler(query):
                 hours = 0
                 if dt:
                     try:
-                        dt_obj = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
-                        diff = datetime.now() - dt_obj
+                        diff = datetime.now() - dt
                         hours = int(diff.total_seconds() // 3600)
                     except:
                         pass
@@ -689,10 +762,13 @@ def button_handler(query):
     elif callback_data.startswith("markpaid_"):
         sale_id = int(callback_data[9:])
         conn = get_db()
-        conn.execute("UPDATE sales SET payment_status='paid' WHERE id=?", (sale_id,))
+        cur = conn.cursor()
+        cur.execute("UPDATE sales SET payment_status='paid' WHERE id=%s", (sale_id,))
         conn.commit()
         
-        sales = conn.execute("SELECT * FROM sales WHERE payment_status='pending' ORDER BY sold_at ASC").fetchall()
+        cur.execute("SELECT * FROM sales WHERE payment_status='pending' ORDER BY sold_at ASC")
+        sales = cur.fetchall()
+        cur.close()
         conn.close()
         
         if not sales:
@@ -707,8 +783,7 @@ def button_handler(query):
                 hours = 0
                 if dt:
                     try:
-                        dt_obj = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
-                        diff = datetime.now() - dt_obj
+                        diff = datetime.now() - dt
                         hours = int(diff.total_seconds() // 3600)
                     except:
                         pass
@@ -727,7 +802,10 @@ def button_handler(query):
 
 def process_sale_confirmation(chat_id, item_id, qty, customer_info, payment_status='paid', message_id=None):
     conn = get_db()
-    item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
+    item = cur.fetchone()
+    
     if not item or item['quantity'] < qty:
         text = "❌ Not enough stock."
         markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
@@ -736,15 +814,19 @@ def process_sale_confirmation(chat_id, item_id, qty, customer_info, payment_stat
         else:
             send_message(chat_id, text, reply_markup=markup)
         clear_state(chat_id)
+        cur.close()
+        conn.close()
         return
 
     new_qty = item['quantity'] - qty
     profit = (item['selling_price'] - item['cost_price']) * qty
     
-    conn.execute("UPDATE stock SET quantity=? WHERE id=?", (new_qty, item_id))
-    conn.execute("INSERT INTO sales (item_name, color, quantity, profit, sold_by, customer_info, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                 (item['item_name'], item['color'], qty, profit, chat_id, customer_info, payment_status))
+    cur.execute("UPDATE stock SET quantity=%s WHERE id=%s", (new_qty, item_id))
+    cur.execute("""INSERT INTO sales (item_name, color, quantity, profit, sold_by, customer_info, payment_status) 
+                  VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (item['item_name'], item['color'], qty, profit, chat_id, customer_info, payment_status))
     conn.commit()
+    cur.close()
     conn.close()
 
     color_str = f" ({item['color']})" if item['color'] else ""
@@ -760,7 +842,7 @@ def process_sale_confirmation(chat_id, item_id, qty, customer_info, payment_stat
     else:
         send_message(chat_id, text, reply_markup=markup)
 
-    # Notification to dedicated notification chat (falls back to owners if empty)
+    # Notification to dedicated notification chat
     status_text = "Paid" if payment_status == 'paid' else "Credit"
     notify_targets = NOTIFICATION_IDS if NOTIFICATION_IDS else OWNER_IDS
     for target_id in notify_targets:
@@ -794,7 +876,10 @@ def handle_text_message(chat_id, text):
             send_message(chat_id, "❌ Please enter a valid positive number.")
             return
         conn = get_db()
-        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
+        item = cur.fetchone()
+        cur.close()
         conn.close()
         if item and qty > item['quantity']:
             send_message(chat_id, f"❌ Not enough stock! Only {item['quantity']} available.")
@@ -835,8 +920,10 @@ def handle_text_message(chat_id, text):
             return
         new_qty = data_dict['existing_qty'] + qty
         conn = get_db()
-        conn.execute("UPDATE stock SET quantity=? WHERE id=?", (new_qty, data_dict['existing_id']))
+        cur = conn.cursor()
+        cur.execute("UPDATE stock SET quantity=%s WHERE id=%s", (new_qty, data_dict['existing_id']))
         conn.commit()
+        cur.close()
         conn.close()
         color_str = f" ({data_dict['color']})" if data_dict['color'] else ""
         text_msg = f"✅ *Updated!*\n\n{data_dict['name']}{color_str} now {new_qty} pcs.\nPrices unchanged.\n\n*What next?*"
@@ -881,9 +968,11 @@ def handle_text_message(chat_id, text):
             return
         new_qty = data_dict['existing_qty'] + qty
         conn = get_db()
-        conn.execute("UPDATE stock SET quantity=?, cost_price=?, selling_price=? WHERE id=?",
+        cur = conn.cursor()
+        cur.execute("UPDATE stock SET quantity=%s, cost_price=%s, selling_price=%s WHERE id=%s",
                     (new_qty, data_dict['new_cost'], data_dict['new_sell'], data_dict['existing_id']))
         conn.commit()
+        cur.close()
         conn.close()
         color_str = f" ({data_dict['color']})" if data_dict['color'] else ""
         text_msg = f"✅ *Updated!*\n\n{data_dict['name']}{color_str}\n{new_qty} pcs\nCost: GHS {data_dict['new_cost']:.2f}\nSell: GHS {data_dict['new_sell']:.2f}\n\n*What next?*"
@@ -945,7 +1034,10 @@ def handle_text_message(chat_id, text):
         data_dict['sell'] = sell
         save_state(chat_id, "add_new_category_pending", data_dict)
         conn = get_db()
-        categories = conn.execute("SELECT DISTINCT category FROM stock ORDER BY category").fetchall()
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT category FROM stock ORDER BY category")
+        categories = cur.fetchall()
+        cur.close()
         conn.close()
         buttons = []
         for cat in categories[:5]:
@@ -974,9 +1066,12 @@ def handle_text_message(chat_id, text):
             send_message(chat_id, "❌ Please enter a valid positive number.")
             return
         conn = get_db()
-        conn.execute("UPDATE stock SET quantity=? WHERE id=?", (qty, item_id))
+        cur = conn.cursor()
+        cur.execute("UPDATE stock SET quantity=%s WHERE id=%s", (qty, item_id))
         conn.commit()
-        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        cur.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
+        item = cur.fetchone()
+        cur.close()
         conn.close()
         color_str = f" ({item['color']})" if item['color'] else ""
         text_msg = f"✅ *Quantity Updated!*\n\n*{item['item_name']}*{color_str} is now {qty}.\n\n*What next?*"
@@ -994,9 +1089,12 @@ def handle_text_message(chat_id, text):
             send_message(chat_id, "❌ Please enter a valid number.")
             return
         conn = get_db()
-        conn.execute("UPDATE stock SET cost_price=? WHERE id=?", (cost, item_id))
+        cur = conn.cursor()
+        cur.execute("UPDATE stock SET cost_price=%s WHERE id=%s", (cost, item_id))
         conn.commit()
-        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        cur.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
+        item = cur.fetchone()
+        cur.close()
         conn.close()
         color_str = f" ({item['color']})" if item['color'] else ""
         text_msg = f"✅ *Cost Price Updated!*\n\n*{item['item_name']}*{color_str} cost is now GHS {cost:.2f}.\n\n*What next?*"
@@ -1014,9 +1112,12 @@ def handle_text_message(chat_id, text):
             send_message(chat_id, "❌ Please enter a valid number.")
             return
         conn = get_db()
-        conn.execute("UPDATE stock SET selling_price=? WHERE id=?", (sell, item_id))
+        cur = conn.cursor()
+        cur.execute("UPDATE stock SET selling_price=%s WHERE id=%s", (sell, item_id))
         conn.commit()
-        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        cur.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
+        item = cur.fetchone()
+        cur.close()
         conn.close()
         color_str = f" ({item['color']})" if item['color'] else ""
         text_msg = f"✅ *Selling Price Updated!*\n\n*{item['item_name']}*{color_str} sell price is now GHS {sell:.2f}.\n\n*What next?*"
@@ -1028,8 +1129,10 @@ def handle_text_message(chat_id, text):
     elif state and state.startswith("edit_category_"):
         item_id = int(state.split("_")[2])
         conn = get_db()
-        conn.execute("UPDATE stock SET category=? WHERE id=?", (text, item_id))
+        cur = conn.cursor()
+        cur.execute("UPDATE stock SET category=%s WHERE id=%s", (text, item_id))
         conn.commit()
+        cur.close()
         conn.close()
         text_msg = f"✅ *Category Updated!*\n\nNow in: *{text}*\n\n*What next?*"
         markup = {"inline_keyboard": [[{"text": "✏️ Edit Another", "callback_data": "main_edit_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
@@ -1047,27 +1150,34 @@ def handle_text_message(chat_id, text):
             send_message(chat_id, "❌ Please enter a valid positive number.")
             return
         conn = get_db()
-        item = conn.execute("SELECT * FROM stock WHERE id=?", (item_id,)).fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM stock WHERE id=%s", (item_id,))
+        item = cur.fetchone()
         if item:
             new_qty = item['quantity'] - qty
             if new_qty < 0:
                 send_message(chat_id, f"❌ Cannot remove {qty}. Only {item['quantity']} in stock.")
+                cur.close()
+                conn.close()
                 clear_state(chat_id)
                 return
             if new_qty == 0:
-                conn.execute("DELETE FROM stock WHERE id=?", (item_id,))
+                cur.execute("DELETE FROM stock WHERE id=%s", (item_id,))
                 conn.commit()
+                cur.close()
                 conn.close()
                 color_str = f" ({item['color']})" if item['color'] else ""
                 text_msg = f"🗑️ *Removed!*\n\n*{item['item_name']}*{color_str} deleted completely.\n\n*What next?*"
             else:
-                conn.execute("UPDATE stock SET quantity=? WHERE id=?", (new_qty, item_id))
+                cur.execute("UPDATE stock SET quantity=%s WHERE id=%s", (new_qty, item_id))
                 conn.commit()
+                cur.close()
                 conn.close()
                 color_str = f" ({item['color']})" if item['color'] else ""
                 text_msg = f"✅ *Quantity Reduced!*\n\n*{item['item_name']}*{color_str}: {item['quantity']} → {new_qty}\n\n*What next?*"
         else:
             text_msg = "❌ Item not found."
+            cur.close()
             conn.close()
         markup = {"inline_keyboard": [[{"text": "🗑️ Remove Another", "callback_data": "main_remove_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         clear_state(chat_id)
