@@ -12,6 +12,7 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OWNER_IDS = [int(id.strip()) for id in os.getenv("OWNER_ID", "").split(",") if id.strip()]
 SECRETARY_IDS = [int(id.strip()) for id in os.getenv("SECRETARY_ID", "").split(",") if id.strip()]
+NOTIFICATION_IDS = [int(id.strip()) for id in os.getenv("NOTIFICATION_IDS", "").split(",") if id.strip()]
 ALLOWED_IDS = OWNER_IDS + SECRETARY_IDS
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -759,10 +760,11 @@ def process_sale_confirmation(chat_id, item_id, qty, customer_info, payment_stat
     else:
         send_message(chat_id, text, reply_markup=markup)
 
-    # Notification to all owners for EVERY sale
+    # Notification to dedicated notification chat (falls back to owners if empty)
     status_text = "Paid" if payment_status == 'paid' else "Credit"
-    for owner in OWNER_IDS:
-        send_message(owner, f"🔔 Sale: {item['item_name']}{color_str} x{qty} — GHS {profit:.2f} ({status_text} — {customer_info})")
+    notify_targets = NOTIFICATION_IDS if NOTIFICATION_IDS else OWNER_IDS
+    for target_id in notify_targets:
+        send_message(target_id, f"🔔 Sale: {item['item_name']}{color_str} x{qty} — GHS {profit:.2f} ({status_text} — {customer_info})")
 
     clear_state(chat_id)
 

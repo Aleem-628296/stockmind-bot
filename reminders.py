@@ -10,6 +10,7 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SECRETARY_IDS = [int(id.strip()) for id in os.getenv("SECRETARY_ID", "").split(",") if id.strip()]
+NOTIFICATION_IDS = [int(id.strip()) for id in os.getenv("NOTIFICATION_IDS", "").split(",") if id.strip()]
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
 LOG_FILE = "reminders_log.json"
@@ -49,6 +50,9 @@ def run_reminders():
     current_hour = now.hour
     current_date = now.strftime("%Y-%m-%d")
     
+    # Route to NOTIFICATION_IDS if set, otherwise fallback to SECRETARY_IDS
+    notify_targets = NOTIFICATION_IDS if NOTIFICATION_IDS else SECRETARY_IDS
+    
     for sale in sales:
         sale_id = str(sale['id'])
         dt = sale['sold_at']
@@ -73,8 +77,8 @@ def run_reminders():
             log_key = f"{sale_id}_h{hours_passed}"
             if log_key not in log_data:
                 msg = f"⏳ *REMINDER ({hours_passed}h)*\n\n{customer} owes GHS {amount:.2f} for {item_name}."
-                for sec_id in SECRETARY_IDS:
-                    send_message(sec_id, msg)
+                for target_id in notify_targets:
+                    send_message(target_id, msg)
                 log_data[log_key] = True
                 
         # End of day reminder at 19:00
@@ -82,8 +86,8 @@ def run_reminders():
             eod_key = f"{sale_id}_eod_{current_date}"
             if eod_key not in log_data:
                 msg = f"🔔 *END OF DAY*\n\n{customer} owes GHS {amount:.2f} for {item_name}. Collect before closing."
-                for sec_id in SECRETARY_IDS:
-                    send_message(sec_id, msg)
+                for target_id in notify_targets:
+                    send_message(target_id, msg)
                 log_data[eod_key] = True
             
     save_log(log_data)
