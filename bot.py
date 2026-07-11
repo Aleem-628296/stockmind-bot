@@ -66,6 +66,13 @@ def init_db():
     cur.execute('''CREATE TABLE IF NOT EXISTS user_state
     (chat_id BIGINT PRIMARY KEY, state TEXT, data TEXT)''')
     
+    # Add missing columns if they don't exist
+    try:
+        cur.execute("ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'paid'")
+        cur.execute("ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_info TEXT DEFAULT 'Walk-in'")
+    except Exception as e:
+        print(f"Note: Column migration skipped - {e}")
+
     # Insert default stock items
     colors = ["White", "Black", "Yellow", "Green", "Red", "Purple", "Gold", "Silver", "Blue"]
     items = []
