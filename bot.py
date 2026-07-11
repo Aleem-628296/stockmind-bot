@@ -7,6 +7,14 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import urllib.parse
+import logging
+
+# Set up logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 app = Flask(__name__)
@@ -19,6 +27,10 @@ ALLOWED_IDS = OWNER_IDS + SECRETARY_IDS
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+logger.info(f"🤖 Bot initialized with:")
+logger.info(f"  OWNER_IDS: {OWNER_IDS}")
+logger.info(f"  WEBHOOK_URL: {WEBHOOK_URL}")
 
 # --- DATABASE FUNCTIONS ---
 def get_db_connection():
@@ -80,7 +92,7 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
-    print("✅ Database initialized successfully")
+    logger.info("✅ Database initialized successfully")
 
 def get_db():
     conn = get_db_connection()
@@ -127,9 +139,11 @@ def send_message(chat_id, text, reply_markup=None):
     if reply_markup:
         data["reply_markup"] = reply_markup
     try:
-        requests.post(url, json=data, timeout=10)
+        response = requests.post(url, json=data, timeout=10)
+        logger.debug(f"✉️ Message sent to {chat_id}: {response.status_code}")
+        return response
     except Exception as e:
-        print(f"Send Error: {e}")
+        logger.error(f"❌ Send Error: {e}")
 
 def send_force_reply(chat_id, text, placeholder="Type here..."):
     url = f"{API_URL}/sendMessage"
@@ -140,17 +154,21 @@ def send_force_reply(chat_id, text, placeholder="Type here..."):
         "reply_markup": {"force_reply": True, "input_field_placeholder": placeholder}
     }
     try:
-        requests.post(url, json=data, timeout=10)
+        response = requests.post(url, json=data, timeout=10)
+        logger.debug(f"✉️ Force reply sent to {chat_id}: {response.status_code}")
+        return response
     except Exception as e:
-        print(f"Send Error: {e}")
+        logger.error(f"❌ Send Error: {e}")
 
 def answer_callback(query_id, text=""):
     url = f"{API_URL}/answerCallbackQuery"
     data = {"callback_query_id": query_id, "text": text}
     try:
-        requests.post(url, json=data, timeout=10)
+        response = requests.post(url, json=data, timeout=10)
+        logger.debug(f"✅ Callback answered: {response.status_code}")
+        return response
     except Exception as e:
-        print(f"Answer Callback Error: {e}")
+        logger.error(f"❌ Answer Callback Error: {e}")
 
 def edit_message(chat_id, message_id, text, reply_markup=None):
     url = f"{API_URL}/editMessageText"
@@ -158,9 +176,11 @@ def edit_message(chat_id, message_id, text, reply_markup=None):
     if reply_markup:
         data["reply_markup"] = reply_markup
     try:
-        requests.post(url, json=data, timeout=10)
+        response = requests.post(url, json=data, timeout=10)
+        logger.debug(f"✏️ Message edited: {response.status_code}")
+        return response
     except Exception as e:
-        print(f"Edit Message Error: {e}")
+        logger.error(f"❌ Edit Message Error: {e}")
 
 # --- UI BUILDERS ---
 def build_main_menu(chat_id):
@@ -196,12 +216,15 @@ def button_handler(query):
     chat_id = query['message']['chat']['id']
     message_id = query['message']['message_id']
     callback_data = query['data']
-    answer_callback(query['id'])
+    
+    logger.info(f"🔘 BUTTON CLICKED by {chat_id}: {callback_data}")
+    answer_callback(query['id'], "⏳ Processing...")
 
     if callback_data == "main_menu":
         text, markup = build_main_menu(chat_id)
         clear_state(chat_id)
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Main menu shown to {chat_id}")
         return
 
     # VIEW STOCK
@@ -221,6 +244,7 @@ def button_handler(query):
             text = "📋 *VIEW STOCK*\n\nSelect a category:"
             markup = {"inline_keyboard": buttons}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ View stock shown to {chat_id}")
         return
 
     elif callback_data.startswith("viewcat_"):
@@ -240,6 +264,7 @@ def button_handler(query):
                 text += f"• *{item['item_name']}*{color_str}\n  Qty: {item['quantity']} | Price: GHS {item['selling_price']:.0f}\n\n"
         markup = {"inline_keyboard": [[{"text": "📋 View Stock", "callback_data": "main_view_stock"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Category {category} shown to {chat_id}")
         return
 
     # RECORD SALE
@@ -259,6 +284,7 @@ def button_handler(query):
             text = "💰 *RECORD SALE*\n\nSelect the item category:"
             markup = {"inline_keyboard": buttons}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Record sale shown to {chat_id}")
         return
 
     elif callback_data.startswith("sellcat_"):
@@ -282,6 +308,7 @@ def button_handler(query):
             text = "💰 *RECORD SALE*\n\nSelect the item sold:"
             markup = {"inline_keyboard": buttons}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Sell category {category} shown to {chat_id}")
         return
 
     elif callback_data.startswith("sellitem_"):
@@ -302,12 +329,14 @@ def button_handler(query):
             markup = {"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]}
             edit_message(chat_id, message_id, text, reply_markup=markup)
             send_force_reply(chat_id, "👇 *Type the quantity now:*", "e.g. 5")
+            logger.info(f"✅ Sell item {item_id} shown to {chat_id}")
         return
 
     elif callback_data.startswith("sell_walkin_"):
         parts = callback_data.split("_")
         item_id = int(parts[2])
         qty = int(parts[3])
+        logger.info(f"💵 Walk-in sale: {qty}x item {item_id}")
         process_sale_confirmation(chat_id, item_id, qty, "Walk-in Customer", payment_status='paid', message_id=message_id)
         return
 
@@ -319,6 +348,7 @@ def button_handler(query):
         
         state, data_dict = get_state(chat_id)
         customer_info = data_dict.get('customer_info', 'Walk-in Customer')
+        logger.info(f"💵 Sale: {qty}x item {item_id}, status={payment_status}, customer={customer_info}")
         
         process_sale_confirmation(chat_id, item_id, qty, customer_info, payment_status=payment_status, message_id=message_id)
         clear_state(chat_id)
@@ -330,6 +360,7 @@ def button_handler(query):
         qty = int(parts[3])
         save_state(chat_id, f"sell_type_{item_id}_{qty}")
         send_force_reply(chat_id, "💰 *RECORD SALE*\n\nPlease type the Customer's Name & Phone Number:\n\n_The keyboard is open. Type and send._", "e.g. John 0241234567")
+        logger.info(f"✅ Asking for customer info for {qty}x item {item_id}")
         return
 
     elif callback_data == "main_recent_sales":
@@ -356,6 +387,7 @@ def button_handler(query):
                 text += f"• {sale['item_name']}{color_str} x{sale['quantity']}\n  🕒 {dt_str}\n  👤 {sale['customer_info']}\n  💰 Profit: GHS {sale['profit']:.2f}\n\n"
         markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Recent sales shown to {chat_id}")
         return
 
     # ADD STOCK
@@ -364,9 +396,11 @@ def button_handler(query):
             text = "❌ Only the owner can add stock."
             markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
             edit_message(chat_id, message_id, text, reply_markup=markup)
+            logger.warning(f"⛔ {chat_id} tried to add stock but not owner")
             return
         save_state(chat_id, "add_new_name")
         send_force_reply(chat_id, "➕ *ADD STOCK*\n\nStep 1/5: What is the item name?\n\n_The keyboard is open. Type the name and send._", "e.g. iPhone 15 Screen")
+        logger.info(f"✅ Add stock flow started for {chat_id}")
         return
 
     elif callback_data.startswith("color_"):
@@ -392,7 +426,7 @@ def button_handler(query):
                 data_dict['existing_sell'] = item['selling_price']
                 save_state(chat_id, "add_existing_choice", data_dict)
                 color_str = f" ({color})" if color != "none" else ""
-                text = f"Found: *{data_dict['name']}*{color_str}\n\nQty: {item['quantity']}\nCost: GHS {item['cost_price']:.2f}\nSell: GHS {item['selling_price']:.2f}\n\nAre you topping up stock or changing prices?"
+                text = f"Found: *{data_dict['name']}*{color_str}\n\nQty: {item['quantity']}\nCost: GHS {item['cost_price']:.2f}\nSell: GHS {item['selling_price']:.2f}\n\nAre you topping up stock or updating prices?"
                 markup = {"inline_keyboard": [
                     [{"text": "📦 Top Up Stock", "callback_data": "add_topup"}, {"text": "💰 Update Prices", "callback_data": "add_update"}],
                     [{"text": "❌ Cancel", "callback_data": "main_menu"}]
@@ -404,6 +438,7 @@ def button_handler(query):
                 markup = {"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]}
                 edit_message(chat_id, message_id, text, reply_markup=markup)
                 send_force_reply(chat_id, "👇 *Type the quantity now:*", "e.g. 15")
+        logger.info(f"✅ Color {color} selected by {chat_id}")
         return
 
     elif callback_data == "add_topup":
@@ -413,6 +448,7 @@ def button_handler(query):
             return
         save_state(chat_id, "add_topup_qty", data_dict)
         send_force_reply(chat_id, "📦 *TOP UP STOCK*\n\nHow many are you adding?\n\n_The keyboard is open. Type the number and send._", "e.g. 20")
+        logger.info(f"✅ Top up mode enabled for {chat_id}")
         return
 
     elif callback_data == "add_update":
@@ -422,6 +458,7 @@ def button_handler(query):
             return
         save_state(chat_id, "add_update_cost", data_dict)
         send_force_reply(chat_id, "💰 *UPDATE PRICES*\n\nNew cost price per unit?\n\n_The keyboard is open. Type and send._", "e.g. 15.50")
+        logger.info(f"✅ Update prices mode enabled for {chat_id}")
         return
 
     elif callback_data.startswith("addcat_"):
@@ -437,9 +474,10 @@ def button_handler(query):
             data_dict['category'] = category
             save_state(chat_id, "add_new_confirm", data_dict)
             color_str = f" ({data_dict['color']})" if data_dict['color'] else ""
-            text_msg = f"➕ *CONFIRM NEW ITEM*\n\nName: *{data_dict['name']}*{color_str}\nQuantity: {data_dict['qty']}\nCost: GHS {data_dict['cost']:.2f}\nSell: GHS {data_dict['sell']:.2f}\nCategory: {category}\n\nAdd this item?"
+            text_msg = f"➕ *CONFIRM NEW ITEM*\n\nName: *{data_dict['name']}*{color_str}\nQuantity: {data_dict['qty']}\nCost: GHS {data_dict['cost']:.2f}\nSell: GHS {data_dict['sell']:.2f}\nCategory: {category}"
             markup = {"inline_keyboard": [[{"text": "✅ Confirm", "callback_data": "addconfirm"}, {"text": "❌ Cancel", "callback_data": "main_menu"}]]}
             edit_message(chat_id, message_id, text_msg, reply_markup=markup)
+            logger.info(f"✅ Category {category} selected for new item")
             return
 
     elif callback_data == "addconfirm":
@@ -450,6 +488,7 @@ def button_handler(query):
             markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
             clear_state(chat_id)
             edit_message(chat_id, message_id, text, reply_markup=markup)
+            logger.error(f"❌ Incomplete data for {chat_id}: {data_dict}")
             return
         conn = get_db()
         cur = conn.cursor()
@@ -460,12 +499,14 @@ def button_handler(query):
                           data_dict['cost'], data_dict['sell'], data_dict['category']))
             conn.commit()
             color_str = f" ({data_dict['color']})" if data_dict['color'] else ""
-            text = f"✅ *Added!*\n\n{data_dict['name']}{color_str} x{data_dict['qty']}\nCost: GHS {data_dict['cost']:.2f}\nSell: GHS {data_dict['sell']:.2f}\nCategory: {data_dict['category']}\n\n*What next?*"
+            text = f"✅ *Added!*\n\n{data_dict['name']}{color_str} x{data_dict['qty']}\nCost: GHS {data_dict['cost']:.2f}\nSell: GHS {data_dict['sell']:.2f}\nCategory: {data_dict['category']}"
             markup = {"inline_keyboard": [[{"text": "➕ Add More Stock", "callback_data": "main_add_stock"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
+            logger.info(f"✅ New item added: {data_dict['name']}")
         except psycopg2.IntegrityError:
             conn.rollback()
             text = "❌ Item with same name and color already exists."
             markup = {"inline_keyboard": [[{"text": "➕ Add More Stock", "callback_data": "main_add_stock"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
+            logger.error(f"❌ Duplicate item: {data_dict['name']} - {data_dict['color']}")
         finally:
             cur.close()
             conn.close()
@@ -479,6 +520,7 @@ def button_handler(query):
             text = "❌ Only the owner can edit items."
             markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
             edit_message(chat_id, message_id, text, reply_markup=markup)
+            logger.warning(f"⛔ {chat_id} tried to edit items but not owner")
             return
         conn = get_db()
         cur = conn.cursor()
@@ -491,6 +533,7 @@ def button_handler(query):
         text = "✏️ *EDIT ITEM*\n\nSelect a category:"
         markup = {"inline_keyboard": buttons}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Edit item flow started for {chat_id}")
         return
 
     elif callback_data.startswith("editcat_"):
@@ -514,6 +557,7 @@ def button_handler(query):
             text = f"✏️ *EDIT: {category}*\n\nSelect the item to edit:"
             markup = {"inline_keyboard": buttons}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Edit category {category} shown to {chat_id}")
         return
 
     elif callback_data.startswith("edititem_"):
@@ -529,31 +573,35 @@ def button_handler(query):
             markup = {"inline_keyboard": [[{"text": "⬅️ Back", "callback_data": "main_edit_item"}]]}
         else:
             color_str = f" ({item['color']})" if item['color'] else ""
-            text = f"✏️ *EDIT ITEM*\n\n*{item['item_name']}*{color_str}\nCategory: {item['category']}\nQty: {item['quantity']}\nCost: GHS {item['cost_price']:.2f}\nSell: GHS {item['selling_price']:.2f}\n\n*What would you like to change?*"
+            text = f"✏️ *EDIT ITEM*\n\n*{item['item_name']}*{color_str}\nCategory: {item['category']}\nQty: {item['quantity']}\nCost: GHS {item['cost_price']:.2f}\nSell: GHS {item['selling_price']:.2f}"
             markup = {"inline_keyboard": [
                 [{"text": "📦 Update Qty", "callback_data": f"editqty_{item_id}"}, {"text": "💰 Update Cost", "callback_data": f"editcost_{item_id}"}],
                 [{"text": "💵 Update Sell Price", "callback_data": f"editsell_{item_id}"}, {"text": "🏷️ Update Category", "callback_data": f"editcat_field_{item_id}"}],
                 [{"text": "⬅️ Back", "callback_data": f"editcat_{item['category']}"}]
             ]}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Edit item {item_id} shown to {chat_id}")
         return
 
     elif callback_data.startswith("editqty_"):
         item_id = int(callback_data[8:])
         save_state(chat_id, f"edit_qty_{item_id}")
         send_force_reply(chat_id, "✏️ *UPDATE QUANTITY*\n\nType the NEW total quantity for this item:", "e.g. 50")
+        logger.info(f"✅ Quantity update mode for item {item_id}")
         return
 
     elif callback_data.startswith("editcost_"):
         item_id = int(callback_data[9:])
         save_state(chat_id, f"edit_cost_{item_id}")
         send_force_reply(chat_id, "✏️ *UPDATE COST PRICE*\n\nType the NEW cost price per unit:", "e.g. 15.50")
+        logger.info(f"✅ Cost update mode for item {item_id}")
         return
 
     elif callback_data.startswith("editsell_"):
         item_id = int(callback_data[9:])
         save_state(chat_id, f"edit_sell_{item_id}")
         send_force_reply(chat_id, "✏️ *UPDATE SELLING PRICE*\n\nType the NEW selling price per unit:", "e.g. 25.00")
+        logger.info(f"✅ Selling price update mode for item {item_id}")
         return
 
     elif callback_data.startswith("editcat_field_"):
@@ -569,6 +617,7 @@ def button_handler(query):
         buttons.append([{"text": "⬅️ Back", "callback_data": f"edititem_{item_id}"}])
         text = "✏️ *UPDATE CATEGORY*\n\nSelect a category:"
         edit_message(chat_id, message_id, text, {"inline_keyboard": buttons})
+        logger.info(f"✅ Category update shown for item {item_id}")
         return
 
     elif callback_data.startswith("editcatset_"):
@@ -584,12 +633,14 @@ def button_handler(query):
         text = f"✅ *Category Updated!*\n\nNow in: *{category}*"
         markup = {"inline_keyboard": [[{"text": "✏️ Edit Another", "callback_data": "main_edit_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Item {item_id} category updated to {category}")
         return
 
     elif callback_data.startswith("editcatcustom_"):
         item_id = int(callback_data[16:])
         save_state(chat_id, f"edit_category_{item_id}")
         send_force_reply(chat_id, "✏️ *UPDATE CATEGORY*\n\nType the new category name:", "e.g. Accessories")
+        logger.info(f"✅ Custom category mode for item {item_id}")
         return
 
     # REMOVE ITEM
@@ -598,6 +649,7 @@ def button_handler(query):
             text = "❌ Only the owner can remove items."
             markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
             edit_message(chat_id, message_id, text, reply_markup=markup)
+            logger.warning(f"⛔ {chat_id} tried to remove items but not owner")
             return
         conn = get_db()
         cur = conn.cursor()
@@ -610,6 +662,7 @@ def button_handler(query):
         text = "🗑️ *REMOVE ITEM*\n\nSelect a category:"
         markup = {"inline_keyboard": buttons}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Remove item flow started for {chat_id}")
         return
 
     elif callback_data.startswith("removecat_"):
@@ -633,6 +686,7 @@ def button_handler(query):
             text = f"🗑️ *REMOVE: {category}*\n\nSelect the item to remove:"
             markup = {"inline_keyboard": buttons}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Remove category {category} shown to {chat_id}")
         return
 
     elif callback_data.startswith("removeitem_"):
@@ -654,6 +708,7 @@ def button_handler(query):
                 [{"text": "⬅️ Back", "callback_data": f"removecat_{item['category']}"}]
             ]}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Remove item {item_id} options shown")
         return
 
     elif callback_data.startswith("removeall_"):
@@ -671,12 +726,14 @@ def button_handler(query):
                 [{"text": "✅ Yes, Delete", "callback_data": f"confirmdelete_{item_id}"}, {"text": "❌ No, Cancel", "callback_data": f"removeitem_{item_id}"}]
             ]}
             edit_message(chat_id, message_id, text, reply_markup=markup)
+            logger.info(f"✅ Delete confirmation shown for item {item_id}")
         return
 
     elif callback_data.startswith("reducereduce_"):
         item_id = int(callback_data[13:])
         save_state(chat_id, f"reduce_qty_{item_id}")
         send_force_reply(chat_id, "📉 *REDUCE QUANTITY*\n\nHow many units to remove?", "e.g. 5")
+        logger.info(f"✅ Reduce quantity mode for item {item_id}")
         return
 
     elif callback_data.startswith("confirmdelete_"):
@@ -691,6 +748,7 @@ def button_handler(query):
         markup = {"inline_keyboard": [[{"text": "🗑️ Remove Another", "callback_data": "main_remove_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         clear_state(chat_id)
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Item {item_id} deleted")
         return
 
     elif callback_data == "main_summary":
@@ -712,6 +770,7 @@ def button_handler(query):
         text = f"📊 *DAILY SUMMARY ({today})*\n\n🛒 Sales Today: {count}\n💰 Total Profit: GHS {total:.2f}\n⏳ Pending: GHS {pend_total:.2f} ({pend_count} customers)\n\n*What next?*"
         markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Daily summary shown to {chat_id}")
         return
 
     elif callback_data == "main_low_stock":
@@ -719,6 +778,7 @@ def button_handler(query):
             text = "❌ Only the owner can view low stock."
             markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
             edit_message(chat_id, message_id, text, reply_markup=markup)
+            logger.warning(f"⛔ {chat_id} tried to view low stock but not owner")
             return
         conn = get_db()
         cur = conn.cursor()
@@ -735,6 +795,7 @@ def button_handler(query):
             text = "✅ All items have more than 5 in stock."
         markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Low stock shown to {chat_id}")
         return
 
     elif callback_data == "main_pending":
@@ -742,6 +803,7 @@ def button_handler(query):
             text = "❌ Only the owner can view pending payments."
             markup = {"inline_keyboard": [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
             edit_message(chat_id, message_id, text, reply_markup=markup)
+            logger.warning(f"⛔ {chat_id} tried to view pending but not owner")
             return
         
         conn = get_db()
@@ -773,6 +835,7 @@ def button_handler(query):
             markup = {"inline_keyboard": buttons + [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
             
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Pending payments shown to {chat_id}")
         return
 
     elif callback_data.startswith("markpaid_"):
@@ -809,9 +872,11 @@ def button_handler(query):
             markup = {"inline_keyboard": buttons + [[{"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
             
         edit_message(chat_id, message_id, text, reply_markup=markup)
+        logger.info(f"✅ Sale {sale_id} marked as paid")
         return
 
     else:
+        logger.warning(f"❓ Unknown button callback: {callback_data}")
         text, markup = build_main_menu(chat_id)
         clear_state(chat_id)
         edit_message(chat_id, message_id, text, reply_markup=markup)
@@ -832,6 +897,7 @@ def process_sale_confirmation(chat_id, item_id, qty, customer_info, payment_stat
         clear_state(chat_id)
         cur.close()
         conn.close()
+        logger.error(f"❌ Insufficient stock for item {item_id}")
         return
 
     new_qty = item['quantity'] - qty
@@ -849,7 +915,7 @@ def process_sale_confirmation(chat_id, item_id, qty, customer_info, payment_stat
     now = datetime.now().strftime("%d/%m/%Y %I:%M %p")
     
     status_str = "(Paid)" if payment_status == 'paid' else "(Credit — Pending)"
-    text = f"✅ *Sale Recorded! {status_str}*\n\n🕒 {now}\n📦 Sold {qty}x *{item['item_name']}*{color_str}\n👤 Customer: *{customer_info}*\n📉 Remaining: {new_qty}\n💰 Profit: GHS {profit:.2f}\n\n*What next?*"
+    text = f"✅ *Sale Recorded! {status_str}*\n\n🕒 {now}\n📦 Sold {qty}x *{item['item_name']}*{color_str}\n👤 Customer: *{customer_info}*\n📉 Remaining: {new_qty}\n💰 Profit: GHS {profit:.2f}"
     
     markup = {"inline_keyboard": [[{"text": "💰 Record Another Sale", "callback_data": "main_record_sale"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
     
@@ -865,6 +931,7 @@ def process_sale_confirmation(chat_id, item_id, qty, customer_info, payment_stat
         send_message(target_id, f"🔔 Sale: {item['item_name']}{color_str} x{qty} — GHS {profit:.2f} ({status_text} — {customer_info})")
 
     clear_state(chat_id)
+    logger.info(f"✅ Sale completed: {qty}x {item['item_name']} for {customer_info}")
 
 # --- TEXT MESSAGE HANDLER ---
 def handle_text_message(chat_id, text):
@@ -872,14 +939,17 @@ def handle_text_message(chat_id, text):
     if text == "/start":
         if chat_id not in ALLOWED_IDS:
             send_message(chat_id, "⛔ Access Denied.")
+            logger.warning(f"⛔ Unauthorized /start from {chat_id}")
             return
         text_msg, markup = build_main_menu(chat_id)
         send_message(chat_id, text_msg, reply_markup=markup)
         clear_state(chat_id)
+        logger.info(f"✅ /start received from {chat_id}")
         return
 
     state, data_dict = get_state(chat_id)
     if chat_id not in OWNER_IDS and not state:
+        logger.warning(f"⛔ Unauthorized message from {chat_id}: {text}")
         return
 
     # 1. Handle Sale Quantity Input
@@ -890,6 +960,7 @@ def handle_text_message(chat_id, text):
             if qty <= 0: raise ValueError
         except ValueError:
             send_message(chat_id, "❌ Please enter a valid positive number.")
+            logger.warning(f"❌ Invalid quantity input: {text}")
             return
         conn = get_db()
         cur = conn.cursor()
@@ -899,6 +970,7 @@ def handle_text_message(chat_id, text):
         conn.close()
         if item and qty > item['quantity']:
             send_message(chat_id, f"❌ Not enough stock! Only {item['quantity']} available.")
+            logger.warning(f"❌ Insufficient stock: requested {qty}, available {item['quantity']}")
             return
         markup = {"inline_keyboard": [
             [{"text": "🚶 Walk-in Customer", "callback_data": f"sell_walkin_{item_id}_{qty}"}],
@@ -906,6 +978,7 @@ def handle_text_message(chat_id, text):
             [{"text": "❌ Cancel", "callback_data": "main_menu"}]
         ]}
         send_message(chat_id, f"✅ Quantity: *{qty}*\n\nWho is buying this?\n\n_Tap an option below._", reply_markup=markup)
+        logger.info(f"✅ Quantity {qty} accepted for item {item_id}")
         return
 
     # 2. Handle Customer Info Input & Payment Choice
@@ -924,6 +997,7 @@ def handle_text_message(chat_id, text):
             [{"text": "❌ Cancel", "callback_data": "main_menu"}]
         ]}
         send_message(chat_id, f"✅ Customer: *{customer_info}*\n\nHow will they pay?", reply_markup=markup)
+        logger.info(f"✅ Customer info: {customer_info}")
         return
 
     # 3. Handle Add Stock - Top Up
@@ -946,6 +1020,7 @@ def handle_text_message(chat_id, text):
         markup = {"inline_keyboard": [[{"text": "➕ Add More Stock", "callback_data": "main_add_stock"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         clear_state(chat_id)
         send_message(chat_id, text_msg, reply_markup=markup)
+        logger.info(f"✅ Stock topped up: {qty} added")
         return
 
     # 4. Handle Add Stock - Update Prices
@@ -960,6 +1035,7 @@ def handle_text_message(chat_id, text):
         save_state(chat_id, "add_update_sell", data_dict)
         send_message(chat_id, f"✅ Cost: *GHS {cost:.2f}*\n\nNew selling price per unit?",
                     reply_markup={"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]})
+        logger.info(f"✅ New cost price: {cost}")
         return
 
     elif state == "add_update_sell":
@@ -973,6 +1049,7 @@ def handle_text_message(chat_id, text):
         save_state(chat_id, "add_update_qty", data_dict)
         send_message(chat_id, f"✅ Sell: *GHS {sell:.2f}*\n\nQuantity to add?",
                     reply_markup={"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]})
+        logger.info(f"✅ New selling price: {sell}")
         return
 
     elif state == "add_update_qty":
@@ -995,6 +1072,7 @@ def handle_text_message(chat_id, text):
         markup = {"inline_keyboard": [[{"text": "➕ Add More Stock", "callback_data": "main_add_stock"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         clear_state(chat_id)
         send_message(chat_id, text_msg, reply_markup=markup)
+        logger.info(f"✅ Stock updated with new prices")
         return
 
     # 5. Handle Add New Item Flow
@@ -1003,6 +1081,7 @@ def handle_text_message(chat_id, text):
         save_state(chat_id, "add_new_color_btn", data_dict)
         markup = {"inline_keyboard": get_color_buttons() + [[{"text": "⚪ None", "callback_data": "color_none"}, {"text": "❌ Cancel", "callback_data": "main_menu"}]]}
         send_message(chat_id, f"✅ Item: *{text}*\n\nSelect color (or tap 'None' if no color):", reply_markup=markup)
+        logger.info(f"✅ New item name: {text}")
         return
 
     elif state == "add_new_color_text":
@@ -1012,6 +1091,7 @@ def handle_text_message(chat_id, text):
         markup = {"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]}
         send_message(chat_id, text, reply_markup=markup)
         send_force_reply(chat_id, "👇 *Type the quantity now:*", "e.g. 15")
+        logger.info(f"✅ Custom color: {text}")
         return
 
     elif state == "add_new_qty":
@@ -1025,6 +1105,7 @@ def handle_text_message(chat_id, text):
         save_state(chat_id, "add_new_cost", data_dict)
         send_message(chat_id, f"✅ Quantity: *{qty}*\n\nWhat is the cost price per unit?",
                     reply_markup={"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]})
+        logger.info(f"✅ Item quantity: {qty}")
         return
 
     elif state == "add_new_cost":
@@ -1038,6 +1119,7 @@ def handle_text_message(chat_id, text):
         save_state(chat_id, "add_new_sell", data_dict)
         send_message(chat_id, f"✅ Cost: *GHS {cost:.2f}*\n\nWhat is the selling price per unit?",
                     reply_markup={"inline_keyboard": [[{"text": "❌ Cancel", "callback_data": "main_menu"}]]})
+        logger.info(f"✅ Item cost: {cost}")
         return
 
     elif state == "add_new_sell":
@@ -1061,15 +1143,17 @@ def handle_text_message(chat_id, text):
         buttons.append([{"text": "📝 Type Custom Category", "callback_data": "addcat_custom"}])
         buttons.append([{"text": "❌ Cancel", "callback_data": "main_menu"}])
         send_message(chat_id, f"✅ Sell: *GHS {sell:.2f}*\n\nSelect a category:", reply_markup={"inline_keyboard": buttons})
+        logger.info(f"✅ Item selling price: {sell}")
         return
 
     elif state == "add_new_category_text":
         data_dict['category'] = text
         save_state(chat_id, "add_new_confirm", data_dict)
         color_str = f" ({data_dict['color']})" if data_dict['color'] else ""
-        text_msg = f"➕ *CONFIRM NEW ITEM*\n\nName: *{data_dict['name']}*{color_str}\nQuantity: {data_dict['qty']}\nCost: GHS {data_dict['cost']:.2f}\nSell: GHS {data_dict['sell']:.2f}\nCategory: {text}\n\nAdd this item?"
+        text_msg = f"➕ *CONFIRM NEW ITEM*\n\nName: *{data_dict['name']}*{color_str}\nQuantity: {data_dict['qty']}\nCost: GHS {data_dict['cost']:.2f}\nSell: GHS {data_dict['sell']:.2f}\nCategory: {text}"
         markup = {"inline_keyboard": [[{"text": "✅ Confirm", "callback_data": "addconfirm"}, {"text": "❌ Cancel", "callback_data": "main_menu"}]]}
         send_message(chat_id, text_msg, reply_markup=markup)
+        logger.info(f"✅ Item category: {text}")
         return
 
     # 6. Handle Edit Item Inputs
@@ -1094,6 +1178,7 @@ def handle_text_message(chat_id, text):
         markup = {"inline_keyboard": [[{"text": "✏️ Edit Another", "callback_data": "main_edit_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         clear_state(chat_id)
         send_message(chat_id, text_msg, reply_markup=markup)
+        logger.info(f"✅ Item {item_id} quantity updated to {qty}")
         return
 
     elif state and state.startswith("edit_cost_"):
@@ -1117,6 +1202,7 @@ def handle_text_message(chat_id, text):
         markup = {"inline_keyboard": [[{"text": "✏️ Edit Another", "callback_data": "main_edit_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         clear_state(chat_id)
         send_message(chat_id, text_msg, reply_markup=markup)
+        logger.info(f"✅ Item {item_id} cost updated to {cost}")
         return
 
     elif state and state.startswith("edit_sell_"):
@@ -1140,6 +1226,7 @@ def handle_text_message(chat_id, text):
         markup = {"inline_keyboard": [[{"text": "✏️ Edit Another", "callback_data": "main_edit_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         clear_state(chat_id)
         send_message(chat_id, text_msg, reply_markup=markup)
+        logger.info(f"✅ Item {item_id} sell price updated to {sell}")
         return
 
     elif state and state.startswith("edit_category_"):
@@ -1154,6 +1241,7 @@ def handle_text_message(chat_id, text):
         markup = {"inline_keyboard": [[{"text": "✏️ Edit Another", "callback_data": "main_edit_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         clear_state(chat_id)
         send_message(chat_id, text_msg, reply_markup=markup)
+        logger.info(f"✅ Item {item_id} category updated to {text}")
         return
 
     # 7. Handle Remove Item - Reduce Quantity
@@ -1198,6 +1286,7 @@ def handle_text_message(chat_id, text):
         markup = {"inline_keyboard": [[{"text": "🗑️ Remove Another", "callback_data": "main_remove_item"}, {"text": "🏠 Main Menu", "callback_data": "main_menu"}]]}
         clear_state(chat_id)
         send_message(chat_id, text_msg, reply_markup=markup)
+        logger.info(f"✅ Item {item_id} quantity reduced")
         return
 
     # FALLBACK
@@ -1205,46 +1294,67 @@ def handle_text_message(chat_id, text):
         text_msg, markup = build_main_menu(chat_id)
         send_message(chat_id, "🤔 I didn't catch that. Here is the main menu:", reply_markup=markup)
         clear_state(chat_id)
+        logger.info(f"ℹ️ Fallback to main menu for {chat_id}")
     else:
         send_message(chat_id, "⛔ Access Denied.")
+        logger.warning(f"⛔ Unauthorized message attempt from {chat_id}")
 
 # --- WEBHOOK ROUTES ---
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     update = request.get_json()
+    logger.info(f"🔔 WEBHOOK UPDATE RECEIVED: {json.dumps(update)}")
+    
     try:
         if 'message' in update:
             message = update['message']
             chat_id = message['chat']['id']
+            logger.info(f"📝 TEXT MESSAGE from {chat_id}: {message.get('text', '[NO TEXT]')}")
+            
             if chat_id not in ALLOWED_IDS:
+                logger.warning(f"⛔ UNAUTHORIZED MESSAGE from {chat_id}")
                 if 'text' in message and message['text'].strip() == "/start":
                     send_message(chat_id, "⛔ Access Denied.")
                     return jsonify({"ok": True})
             if 'text' in message:
                 handle_text_message(chat_id, message['text'])
+                
         elif 'callback_query' in update:
             callback = update['callback_query']
             chat_id = callback['message']['chat']['id']
+            callback_data = callback['data']
+            logger.info(f"🔘 BUTTON CLICK from {chat_id}: {callback_data}")
+            
             if chat_id not in ALLOWED_IDS:
+                logger.warning(f"⛔ UNAUTHORIZED BUTTON CLICK from {chat_id}: {callback_data}")
                 return jsonify({"ok": True})
             button_handler(callback)
+        else:
+            logger.debug(f"ℹ️ Other update type: {update.keys()}")
+            
     except Exception as e:
-        print(f"Processing Error: {e}")
+        logger.error(f"❌ PROCESSING ERROR: {e}", exc_info=True)
+    
     return jsonify({"ok": True})
 
 @app.route('/setup', methods=['GET'])
 def setup_webhook():
     if not WEBHOOK_URL:
+        logger.error("❌ WEBHOOK_URL not set")
         return "Error: WEBHOOK_URL environment variable not set."
     url = f"{API_URL}/setWebhook"
     data = {"url": WEBHOOK_URL}
+    logger.info(f"🔗 Setting webhook to: {WEBHOOK_URL}")
     response = requests.post(url, json=data)
+    logger.info(f"📡 Webhook setup response: {response.text}")
     return response.text
 
 @app.route('/', methods=['GET'])
 def index():
+    logger.info("🏠 Index page accessed")
     return "Victory Venture StockMind Bot is running!"
 
 if __name__ == '__main__':
+    logger.info("🚀 STARTING STOCKMIND BOT")
     init_db()
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
