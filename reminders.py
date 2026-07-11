@@ -7,6 +7,12 @@ import requests
 from datetime import datetime
 from dotenv import load_dotenv
 import urllib.parse
+import os
+import time
+os.environ['TZ'] = 'Africa/Accra'
+time.tzset()
+
+print("!!! REMINDERS SCRIPT IS RUNNING !!!")
 
 load_dotenv()
 

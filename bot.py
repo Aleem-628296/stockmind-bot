@@ -7,6 +7,10 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import urllib.parse
+import os
+os.environ['TZ'] = 'Africa/Accra'
+import time
+time.tzset()
 import logging
 
 # Set up logging
