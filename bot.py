@@ -65,8 +65,14 @@ def init_db():
     
     cur.execute('''CREATE TABLE IF NOT EXISTS user_state
     (chat_id BIGINT PRIMARY KEY, state TEXT, data TEXT)''')
+
+    # Fix integer out of range for Telegram chat IDs
+    try:
+        cur.execute("ALTER TABLE sales ALTER COLUMN sold_by TYPE BIGINT")
+    except Exception as e:
+        print(f"Note: Column type migration skipped - {e}")    
     
-    # Add missing columns if they don't exist
+# Add missing columns if they don't exist
     try:
         cur.execute("ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'paid'")
         cur.execute("ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_info TEXT DEFAULT 'Walk-in'")
