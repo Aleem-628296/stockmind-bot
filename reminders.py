@@ -6,6 +6,7 @@ from psycopg2.extras import RealDictCursor
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
+import urllib.parse
 
 load_dotenv()
 
@@ -38,9 +39,22 @@ def send_message(chat_id, text):
     except Exception as e:
         print(f"Reminder Send Error: {e}")
 
+def get_db_connection():
+    """Parse DATABASE_URL and connect with IPv4 forced"""
+    parsed = urllib.parse.urlparse(DATABASE_URL)
+    conn = psycopg2.connect(
+        host=parsed.hostname,
+        port=parsed.port or 5432,
+        user=parsed.username,
+        password=parsed.password,
+        database=parsed.path[1:],
+        connect_timeout=10
+    )
+    return conn
+
 def get_pending_sales():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-    cur = conn.cursor()
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("SELECT * FROM sales WHERE payment_status='pending'")
     sales = cur.fetchall()
     cur.close()

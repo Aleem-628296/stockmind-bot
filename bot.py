@@ -6,6 +6,7 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+import urllib.parse
 
 load_dotenv()
 app = Flask(__name__)
@@ -20,8 +21,23 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # --- DATABASE FUNCTIONS ---
+def get_db_connection():
+    """Parse DATABASE_URL and connect with IPv4 forced"""
+    parsed = urllib.parse.urlparse(DATABASE_URL)
+    
+    # Force IPv4 by using the hostname directly
+    conn = psycopg2.connect(
+        host=parsed.hostname,
+        port=parsed.port or 5432,
+        user=parsed.username,
+        password=parsed.password,
+        database=parsed.path[1:],
+        connect_timeout=10
+    )
+    return conn
+
 def init_db():
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = get_db_connection()
     cur = conn.cursor()
     
     cur.execute('''CREATE TABLE IF NOT EXISTS stock
@@ -67,7 +83,7 @@ def init_db():
     print("✅ Database initialized successfully")
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    conn = get_db_connection()
     return conn
 
 def save_state(chat_id, state, data_dict=None):
