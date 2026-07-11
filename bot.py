@@ -94,9 +94,29 @@ def init_db():
     conn.close()
     logger.info("✅ Database initialized successfully")
 
+from psycopg2.extras import RealDictCursor
+
+class DictConnection:
+    """Wrapper that makes all cursors return dictionaries instead of tuples"""
+    def __init__(self, conn):
+        self._conn = conn
+    
+    def cursor(self, *args, **kwargs):
+        kwargs['cursor_factory'] = RealDictCursor
+        return self._conn.cursor(*args, **kwargs)
+    
+    def commit(self):
+        return self._conn.commit()
+    
+    def close(self):
+        return self._conn.close()
+    
+    def rollback(self):
+        return self._conn.rollback()
+
 def get_db():
     conn = get_db_connection()
-    return conn
+    return DictConnection(conn)
 
 def save_state(chat_id, state, data_dict=None):
     conn = get_db()
