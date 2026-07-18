@@ -1,6 +1,7 @@
 # StockMind — Inventory Management Telegram Bot
 
 A tap-to-use inventory management system built for **Victory Venture**, a phone accessories shop in Accra, Ghana.
+🌐 **Live Demo:** [stockmind-bot.onrender.com](https://stockmind-bot.onrender.com)
 
 ## What It Does
 - Browse stock by category (iPhone Screens, Samsung Screens, Chargers, Accessories)
